@@ -114,7 +114,9 @@ class RowReader {
  public:
   virtual ~RowReader() {}
 
-  // Reads rows from a database based on the provided read_arg.
+  virtual void SetEnableExecutionChecks(bool enable_execution_checks) {}
+
+    // Reads rows from a database based on the provided read_arg.
   virtual absl::Status Read(const ReadArg& read_arg,
                             std::unique_ptr<RowCursor>* cursor) = 0;
 };

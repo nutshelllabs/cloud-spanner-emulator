@@ -252,7 +252,7 @@ absl::Status ReadWriteTransaction::Read(const ReadArg& read_arg,
       std::unique_ptr<StorageIterator> itr;
       ZETASQL_RETURN_IF_ERROR(transaction_store_->Read(
           resolved_read_arg.table, key_range, resolved_read_arg.columns, &itr,
-          false /*allow_pending_commit_timestamps_in_read*/));
+          !enable_execution_checks_));
       iterators.push_back(std::move(itr));
     }
     *cursor = std::make_unique<StorageIteratorRowCursor>(

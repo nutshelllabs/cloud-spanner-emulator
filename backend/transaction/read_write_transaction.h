@@ -117,7 +117,11 @@ class ReadWriteTransaction : public RowReader, public RowWriter {
     return retry_state_;
   }
 
- private:
+  void SetEnableExecutionChecks(bool enable_execution_checks) override {
+    enable_execution_checks_ = enable_execution_checks;
+  }
+
+private:
   friend class TransactionOpsProcessor;
 
   enum class OpType {
@@ -162,6 +166,9 @@ class ReadWriteTransaction : public RowReader, public RowWriter {
 
   // System-wide monotonic clock.
   Clock* clock_;
+
+  // Determines whether to execute execution checks, like restrict commit timestamp reading, etc
+  bool enable_execution_checks_ = true;
 
   // Underlying storage of the database.
   Storage* base_storage_;
