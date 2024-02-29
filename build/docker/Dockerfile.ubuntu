@@ -63,9 +63,12 @@ COPY . src/
 # not all the targets from the PostgreSQL source needs to be built and some of
 # the unused build targets will fail.
 ENV BAZEL_CXXOPTS="-std=c++17"
-RUN cd src                                                                  && \
+RUN --mount=type=cache,id=bazel-${TARGETARCH},target=/root/.cache/bazel        \
+    cd src                                                                  && \
     CC=/usr/bin/gcc CXX=/usr/bin/g++                                           \
-    bazel build -c opt -- ... -third_party/spanner_pg/src/...
+    bazel build -c opt -- ... -third_party/spanner_pg/src/... -tests/...    && \
+    mkdir out && cp bazel-bin/binaries/emulator_main out/emulator_main      && \
+    cp bazel-bin/binaries/gateway_main_/gateway_main out/gateway_main
 
 # Generate licenses file.
 RUN for file in $(find -L src/bazel-src/external                               \
@@ -86,8 +89,8 @@ RUN for file in $(find -L src/bazel-src/external                               \
 FROM gcr.io/distroless/cc-debian12
 
 # Copy binaries.
-COPY --from=build /src/bazel-bin/binaries/emulator_main .
-COPY --from=build /src/bazel-bin/binaries/gateway_main_/gateway_main .
+COPY --from=build /src/out/emulator_main .
+COPY --from=build /src/out/gateway_main .
 
 # Copy the libstdc++.so.6 shared library. We use wildcards to execute a conditional
 # copy depending on the target architecture.
