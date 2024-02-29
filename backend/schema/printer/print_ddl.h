@@ -70,6 +70,9 @@ std::string PrintNamedSchema(const NamedSchema* named_schema);
 // Converts an OnDeleteAction to its string representation.
 std::string OnDeleteActionToString(Table::OnDeleteAction action);
 
+// Converts an ForeignKey::Action to its string representation.
+std::string ForeignKeyActionToString(ForeignKey::Action action);
+
 // Converts a RowDeletionPolicy to its string representation.
 std::string RowDeletionPolicyToString(const ddl::RowDeletionPolicy& policy);
 

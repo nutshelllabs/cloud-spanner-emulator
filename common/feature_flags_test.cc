@@ -34,7 +34,7 @@ TEST(EmulatorFeatureFlags, Basic) {
   EXPECT_TRUE(features.flags().enable_check_constraint);
   EXPECT_TRUE(features.flags().enable_column_default_values);
   EXPECT_TRUE(features.flags().enable_generated_pk);
-  EXPECT_FALSE(features.flags().enable_fk_delete_cascade_action);
+  EXPECT_TRUE(features.flags().enable_fk_delete_cascade_action);
   EXPECT_TRUE(features.flags().enable_bit_reversed_positive_sequences);
   EXPECT_TRUE(
       features.flags().enable_bit_reversed_positive_sequences_postgresql);
@@ -45,7 +45,7 @@ TEST(EmulatorFeatureFlags, Basic) {
     flags.enable_check_constraint = false;
     flags.enable_column_default_values = false;
     flags.enable_generated_pk = false;
-    flags.enable_fk_delete_cascade_action = true;
+    flags.enable_fk_delete_cascade_action = false;
     flags.enable_bit_reversed_positive_sequences = false;
     flags.enable_bit_reversed_positive_sequences_postgresql = false;
     flags.enable_upsert_queries = true;
@@ -54,7 +54,7 @@ TEST(EmulatorFeatureFlags, Basic) {
     EXPECT_FALSE(features.flags().enable_check_constraint);
     EXPECT_FALSE(features.flags().enable_column_default_values);
     EXPECT_FALSE(features.flags().enable_generated_pk);
-    EXPECT_TRUE(features.flags().enable_fk_delete_cascade_action);
+    EXPECT_FALSE(features.flags().enable_fk_delete_cascade_action);
     EXPECT_FALSE(features.flags().enable_bit_reversed_positive_sequences);
     EXPECT_FALSE(
         features.flags().enable_bit_reversed_positive_sequences_postgresql);
@@ -63,7 +63,7 @@ TEST(EmulatorFeatureFlags, Basic) {
   EXPECT_TRUE(features.flags().enable_check_constraint);
   EXPECT_TRUE(features.flags().enable_column_default_values);
   EXPECT_TRUE(features.flags().enable_generated_pk);
-  EXPECT_FALSE(features.flags().enable_fk_delete_cascade_action);
+  EXPECT_TRUE(features.flags().enable_fk_delete_cascade_action);
   EXPECT_TRUE(features.flags().enable_bit_reversed_positive_sequences);
   EXPECT_TRUE(
       features.flags().enable_bit_reversed_positive_sequences_postgresql);
