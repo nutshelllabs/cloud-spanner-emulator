@@ -47,7 +47,8 @@ class QueryableTable : public zetasql::Table {
       const backend::Table* table, RowReader* reader,
       std::optional<const zetasql::AnalyzerOptions> options = std::nullopt,
       zetasql::Catalog* catalog = nullptr,
-      zetasql::TypeFactory* type_factory = nullptr);
+      zetasql::TypeFactory* type_factory = nullptr,
+      bool allow_pending_timestamp_read = false);
 
   std::string Name() const override { return wrapped_table_->Name(); }
 
@@ -94,6 +95,8 @@ class QueryableTable : public zetasql::Table {
 
   // A list of ordinal indexes of the primary key columns of the table.
   std::vector<int> primary_key_column_indexes_;
+
+  bool allow_pending_timestamp_read_;
 };
 
 }  // namespace backend

@@ -151,7 +151,8 @@ Catalog::Catalog(const Schema* schema, const FunctionCatalog* function_catalog,
                  zetasql::TypeFactory* type_factory,
                  const zetasql::AnalyzerOptions& options, RowReader* reader,
                  QueryEvaluator* query_evaluator,
-                 std::optional<std::string> change_stream_internal_lookup)
+                 std::optional<std::string> change_stream_internal_lookup,
+                 bool allow_pending_timestamp_read)
     : schema_(schema),
       function_catalog_(function_catalog),
       type_factory_(type_factory) {
@@ -165,7 +166,7 @@ Catalog::Catalog(const Schema* schema, const FunctionCatalog* function_catalog,
   // Pass the reader to tables.
   for (const auto* table : schema->tables()) {
     tables_[table->Name()] = std::make_unique<QueryableTable>(
-        table, reader, options, this, type_factory);
+        table, reader, options, this, type_factory, allow_pending_timestamp_read);
   }
 
   for (const auto* model : schema->models()) {

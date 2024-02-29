@@ -143,8 +143,10 @@ QueryableTable::AnalyzeColumnExpression(
 QueryableTable::QueryableTable(
     const backend::Table* table, RowReader* reader,
     std::optional<const zetasql::AnalyzerOptions> opt_options,
-    zetasql::Catalog* catalog, zetasql::TypeFactory* type_factory)
-    : wrapped_table_(table), reader_(reader) {
+    zetasql::Catalog* catalog, zetasql::TypeFactory* type_factory,
+    bool allow_pending_timestamp_read)
+    : wrapped_table_(table), reader_(reader),
+      allow_pending_timestamp_read_(allow_pending_timestamp_read) {
   bool enable_generated_pk =
       EmulatorFeatureFlags::instance().flags().enable_generated_pk;
   for (const auto* column : table->columns()) {
@@ -202,6 +204,7 @@ QueryableTable::CreateEvaluatorTableIterator(
   read_arg.table = Name();
   read_arg.key_set = KeySet::All();
   read_arg.columns = column_names;
+  read_arg.allow_pending_timestamp_read = allow_pending_timestamp_read_;
   // If current table is a change stream internal data/partition table, change
   // the read arg to access internal tables directly.
   if (wrapped_table_->owner_change_stream() != nullptr) {

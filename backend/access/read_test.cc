@@ -44,7 +44,8 @@ TEST(ReadArg, CanBeStreamedToOStream) {
       "Table  : 'Hello'\n"
       "Index  : 'World'\n"
       "KeySet : Range[{} ... {∞})\n"
-      "Columns: ['One' ,'Two']\n",
+      "Columns: ['One' ,'Two']\n"
+      "AllowPendingTimestampRead: false\n",
       sstr.str());
 }
 

@@ -634,7 +634,7 @@ bool IsDMLStmt(const zetasql::ResolvedNodeKind& query_kind) {
          query_kind == zetasql::RESOLVED_DELETE_STMT;
 }
 
-bool IsDMLStmtWitoutSelect(
+bool IsDMLStmtWithoutSelect(
     const zetasql::ResolvedStatement* resolved_statement) {
   const zetasql::ResolvedNodeKind& query_kind =
       resolved_statement->node_kind();
@@ -666,7 +666,7 @@ ExtractValidatedResolvedStatementAndOptions(
   // through hint if the caller requested them.
   QueryEngineOptions options;
   std::unique_ptr<QueryValidator> query_validator =
-      IsDMLStmtWitoutSelect(analyzer_output->resolved_statement())
+      IsDMLStmtWithoutSelect(analyzer_output->resolved_statement())
           ? std::make_unique<DMLQueryValidator>(context, &options)
           : std::make_unique<QueryValidator>(context, &options);
 
@@ -778,6 +778,7 @@ absl::StatusOr<QueryResult> QueryEngine::ExecuteSql(
   ZETASQL_ASSIGN_OR_RETURN(auto analyzer_options,
                    MakeAnalyzerOptionsWithParameters(query.declared_params));
   analyzer_options.set_prune_unused_columns(true);
+  bool isDml = IsDMLQuery(query.sql);
 
   QueryEvaluatorForEngine view_evaluator(*this, context);
   Catalog catalog{
@@ -788,6 +789,8 @@ absl::StatusOr<QueryResult> QueryEngine::ExecuteSql(
       context.reader,
       &view_evaluator,
       query.change_stream_internal_lookup,
+      // disallow reading pending commit timestamp if we are in RW mode and sql is query
+      context.writer == nullptr || isDml
   };
 
   std::unique_ptr<const zetasql::AnalyzerOutput> analyzer_output;
@@ -823,7 +826,7 @@ absl::StatusOr<QueryResult> QueryEngine::ExecuteSql(
   }
 
   QueryResult result;
-  if (!IsDMLStmt(analyzer_output->resolved_statement()->node_kind())) {
+  if (!isDml) {
     ZETASQL_ASSIGN_OR_RETURN(
         auto cursor,
         EvaluateQuery(resolved_statement.get(), params, type_factory_,

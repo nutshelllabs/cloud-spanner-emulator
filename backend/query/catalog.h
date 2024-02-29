@@ -62,7 +62,8 @@ class Catalog : public zetasql::EnumerableCatalog {
       const zetasql::AnalyzerOptions& options =
           MakeGoogleSqlAnalyzerOptions(),
       RowReader* reader = nullptr, QueryEvaluator* query_evaluator = nullptr,
-      std::optional<std::string> change_stream_internal_lookup = std::nullopt);
+      std::optional<std::string> change_stream_internal_lookup = std::nullopt,
+      bool allow_pending_timestamp_read = false);
 
   std::string FullName() const final {
     // The name of the root catalog is "".

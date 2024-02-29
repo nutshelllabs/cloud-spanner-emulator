@@ -117,7 +117,7 @@ class ReadWriteTransaction : public RowReader, public RowWriter {
     return retry_state_;
   }
 
- private:
+private:
   friend class TransactionOpsProcessor;
 
   enum class OpType {

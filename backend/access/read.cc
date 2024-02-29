@@ -39,6 +39,7 @@ std::ostream& operator<<(std::ostream& out, const ReadArg& arg) {
     }
     out << "'" << arg.columns[i] << "'";
   }
+  out << "AllowPendingTimestampRead" << arg.allow_pending_timestamp_read << "'\n";
   out << "]\n";
 
   return out;

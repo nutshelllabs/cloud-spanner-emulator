@@ -56,6 +56,8 @@ struct ReadArg {
 
   // Set of columns to read.
   std::vector<std::string> columns;
+
+  bool allow_pending_timestamp_read = false;
 };
 
 // Streams a debug string representation of ReadArg to out.
@@ -114,7 +116,7 @@ class RowReader {
  public:
   virtual ~RowReader() {}
 
-  // Reads rows from a database based on the provided read_arg.
+    // Reads rows from a database based on the provided read_arg.
   virtual absl::Status Read(const ReadArg& read_arg,
                             std::unique_ptr<RowCursor>* cursor) = 0;
 };
