@@ -1852,7 +1852,7 @@ void InformationSchemaCatalog::FillReferentialConstraintsTable() {
           // update_rule
           String(kNoAction),
           // delete_rule
-          String(kNoAction),
+          String(ForeignKeyActionToString(foreign_key->on_delete_action())),
           // spanner_state
           String(kCommitted),
       });

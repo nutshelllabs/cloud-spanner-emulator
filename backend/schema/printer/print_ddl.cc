@@ -110,6 +110,16 @@ std::string OnDeleteActionToString(Table::OnDeleteAction action) {
   }
 }
 
+std::string ForeignKeyActionToString(ForeignKey::Action action) {
+  switch (action) {
+    case ForeignKey::Action::kActionUnspecified:
+    case ForeignKey::Action::kNoAction:
+      return "NO ACTION";
+    case ForeignKey::Action::kCascade:
+      return "CASCADE";
+  }
+}
+
 std::string RowDeletionPolicyToString(const ddl::RowDeletionPolicy& policy) {
   std::string str;
   absl::StrAppend(&str, "OLDER_THAN(");
