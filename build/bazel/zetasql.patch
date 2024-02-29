@@ -1,3 +1,70 @@
+diff --git a/zetasql/public/functions/date_time_util.h b/zetasql/public/functions/date_time_util.h
+index 09e18f1f..d2dbcf5a 100644
+--- a/zetasql/public/functions/date_time_util.h
++++ b/zetasql/public/functions/date_time_util.h
+@@ -452,6 +452,11 @@ absl::Status ConvertStringToTimestamp(absl::string_view str,
+                                       TimestampScale scale,
+                                       bool allow_tz_in_str, int64_t* timestamp);
+
++absl::Status ConvertStringToTimestamp(absl::string_view str,
++                                      absl::string_view default_timezone_string,
++                                      TimestampScale scale,
++                                      bool allow_tz_in_str, absl::Time* output);
++
+ // Populate the <output> with the values from input if the values on all fields
+ // are valid, return error otherwise.
+ absl::Status ConstructDate(int year, int month, int day, int32_t* output);
+diff --git a/zetasql/public/functions/date_time_util.cc b/zetasql/public/functions/date_time_util.cc
+index dee8742c..0b9ec6d2 100644
+--- a/zetasql/public/functions/date_time_util.cc
++++ b/zetasql/public/functions/date_time_util.cc
+@@ -2590,6 +2590,17 @@ absl::Status ConvertStringToTimestamp(absl::string_view str,
+   return ConvertStringToTimestamp(str, timezone, scale, timestamp);
+ }
+
++absl::Status ConvertStringToTimestamp(absl::string_view str,
++                                      absl::string_view default_timezone_string,
++                                      TimestampScale scale,
++                                      bool allow_tz_in_str,
++                                      absl::Time* output) {
++  absl::TimeZone timezone;
++  ZETASQL_RETURN_IF_ERROR(MakeTimeZone(default_timezone_string, &timezone));
++  return ConvertStringToTimestamp(str, timezone, scale, allow_tz_in_str,
++                                  output);
++}
++
+ absl::Status ConvertStringToTimestamp(absl::string_view str,
+                                       absl::TimeZone default_timezone,
+                                       TimestampScale scale,
+diff --git a/zetasql/reference_impl/function.cc b/zetasql/reference_impl/function.cc
+index c83f2a48..08add578 100644
+--- a/zetasql/reference_impl/function.cc
++++ b/zetasql/reference_impl/function.cc
+@@ -10211,19 +10211,20 @@ absl::StatusOr<Value> TimestampConversionFunction::Eval(
+     }
+     return Value::Timestamp(timestamp);
+   } else if (!args.empty() && args[0].type()->IsString()) {
+-    int64_t timestamp_micros;
++    absl::Time timestamp;
+     if (args.size() == 2 && args[1].type()->IsString()) {
+       ZETASQL_RETURN_IF_ERROR(functions::ConvertStringToTimestamp(
+           args[0].string_value(), args[1].string_value(),
+-          functions::kMicroseconds, false, &timestamp_micros));
++          GetTimestampScale(context->GetLanguageOptions()), false, &timestamp));
+     } else if (args.size() == 1) {
+       ZETASQL_RETURN_IF_ERROR(functions::ConvertStringToTimestamp(
+           args[0].string_value(), context->GetDefaultTimeZone(),
+-          functions::kMicroseconds, true, &timestamp_micros));
++          GetTimestampScale(context->GetLanguageOptions()), true, &timestamp));
+     } else {
+       return MakeEvalError() << "Unsupported function: " << debug_name();
+     }
+-    return Value::TimestampFromUnixMicros(timestamp_micros);
++    ZETASQL_RETURN_IF_ERROR(ValidateMicrosPrecision(Value::Timestamp(timestamp), context));
++    return Value::Timestamp(timestamp);
+   } else if (!args.empty() && args[0].type()->IsDate()) {
+     int64_t timestamp_micros;
+     if (args.size() == 2 && args[1].type()->IsString()) {
 diff --git a/bazel/grpc_extra_deps.patch b/bazel/grpc_extra_deps.patch
 index 771761b3..7f461c42 100644
 --- a/bazel/grpc_extra_deps.patch
@@ -103,11 +170,11 @@ index 55a58ce4..7e502bad 100644
  load("@com_google_zetasql//bazel:zetasql_bazel_version.bzl", "zetasql_bazel_version")
 -load("@toolchains_llvm//toolchain:deps.bzl", "bazel_toolchain_dependencies")
 -load("@toolchains_llvm//toolchain:rules.bzl", "llvm_toolchain")
- 
+
  def zetasql_deps_step_1(add_bazel_version = True):
      if add_bazel_version:
          zetasql_bazel_version()
- 
+
 -    bazel_toolchain_dependencies()
 -    llvm_toolchain(
 -        name = "llvm_toolchain",
@@ -120,7 +187,7 @@ index 55a58ce4..7e502bad 100644
 -            "darwin-x86_64": "15.0.7",
 -        },
 -    )
- 
+
      http_archive(
          name = "io_bazel_rules_go",
 diff --git a/bazel/zetasql_deps_step_2.bzl b/bazel/zetasql_deps_step_2.bzl
@@ -137,11 +204,11 @@ index 0298cb41..1dd07902 100644
  load("@rules_foreign_cc//foreign_cc:repositories.bzl", "rules_foreign_cc_dependencies")
 @@ -29,7 +28,6 @@ load("@rules_proto//proto:setup.bzl", "rules_proto_setup")
  load("@rules_proto//proto:toolchains.bzl", "rules_proto_toolchains")
- 
+
  def _load_deps_from_step_1():
 -    llvm_register_toolchains()
      rules_foreign_cc_dependencies()
- 
+
  def textmapper_dependencies():
 @@ -485,7 +483,6 @@ alias(
          flex_register_toolchains(version = "2.6.4")
@@ -150,14 +217,14 @@ index 0298cb41..1dd07902 100644
 -        go_register_toolchains(version = "1.23.6")
          gazelle_dependencies()
          textmapper_dependencies()
- 
+
 diff --git a/zetasql/analyzer/BUILD b/zetasql/analyzer/BUILD
 index cdbff9ca..1caa87a4 100644
 --- a/zetasql/analyzer/BUILD
 +++ b/zetasql/analyzer/BUILD
 @@ -15,11 +15,10 @@
  #
- 
+
  load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 -load("@rules_cc//cc:cc_test.bzl", "cc_test")
  load(":builddefs.bzl", "gen_analyzer_test")
@@ -202,7 +269,7 @@ index 89b79ad8..6112c59d 100644
 @@ -3123,7 +3123,7 @@ class SystemVariableConstant final : public Constant {
                           const Type* type)
        : Constant(name_path), type_(type) {}
- 
+
 -  const Type* type() const override { return type_; }
 +  const zetasql::Type* type() const override { return type_; }
    std::string DebugString() const override { return FullName(); }
@@ -228,7 +295,7 @@ index 730ccdcb..46fe06b0 100644
 @@ -59,6 +59,17 @@ inline void ZetaSqlMakeCheckOpValueString(std::ostream *os, const T &v) {
    (*os) << v;
  }
- 
+
 +// This overloading is implemented to address the compilation issue when trying to log unique_ptr types
 +// At the moment, we are not providing any specific implementation for handling unique_ptr types.
 +template <typename T>
@@ -263,7 +330,7 @@ index 10596497..399487dd 100644
 +        "@com_github_grpc_grpc//:grpc++",
      ],
  )
- 
+
 @@ -69,6 +70,7 @@ cc_test(
          "@com_google_absl//absl/status",
          "@com_google_absl//absl/status:statusor",
@@ -271,7 +338,7 @@ index 10596497..399487dd 100644
 +        "@com_github_grpc_grpc//:grpc++",
      ],
  )
- 
+
 diff --git a/zetasql/common/BUILD b/zetasql/common/BUILD
 index 2bdd2173..b81f7324 100644
 --- a/zetasql/common/BUILD
@@ -386,10 +453,10 @@ index ce8fb08d..d9e4d1c3 100644
 @@ -365,7 +365,7 @@ class GraphPropertyDeclaration {
      return ::zetasql::FullName(PropertyGraphNamePath(), Name());
    }
- 
+
 -  virtual const Type* Type() const = 0;
 +  virtual const zetasql::Type* Type() const = 0;
- 
+
    // Returns whether or not this GraphPropertyDeclaration is a specific
    // interface or implementation.
 diff --git a/zetasql/public/simple_catalog.h b/zetasql/public/simple_catalog.h
@@ -404,7 +471,7 @@ index 023faf04..6c67b577 100644
 +  const zetasql::Type* type() const override { return value_.type(); }
  
    const Value& value() const { return value_; }
- 
+
 diff --git a/zetasql/public/sql_constant.h b/zetasql/public/sql_constant.h
 index fa88344f..69defd3b 100644
 --- a/zetasql/public/sql_constant.h
@@ -425,10 +492,10 @@ index 4322229c..2b4188f2 100644
 @@ -14,7 +14,7 @@
  # limitations under the License.
  #
- 
+
 -package(default_visibility = ["//zetasql/base:zetasql_implementation"])
 +package(default_visibility = ["//visibility:public"])
- 
+
  filegroup(
      name = "type_headers",
 diff --git a/zetasql/public/value.cc b/zetasql/public/value.cc
@@ -436,14 +503,14 @@ index dd0de392..82a09db6 100644
 --- a/zetasql/public/value.cc
 +++ b/zetasql/public/value.cc
 @@ -1245,7 +1245,7 @@ std::string Value::DebugString(bool verbose) const {
- 
+
  // Format will wrap arrays and structs.
  std::string Value::Format(bool print_top_level_type) const {
 -  return FormatInternal(
 +  return FormatInternal(Type::FormatValueContentOptions
        {.force_type_at_top_level = print_top_level_type, .indent = 0});
  }
- 
+
 @@ -1513,7 +1513,7 @@ std::string Value::FormatInternal(
      std::vector<std::string> element_strings(elements().size());
      for (int i = 0; i < elements().size(); ++i) {
@@ -541,7 +608,7 @@ index ad8ba8b7..22b9146a 100644
        arg_infos.push_back({.kind = TvfArgKind::kRelation});
        continue;
 @@ -7668,7 +7668,7 @@ absl::StatusOr<std::unique_ptr<RelationalOp>> Algebrizer::AlgebrizeTvfScan(
- 
+
      if (argument->model() != nullptr) {
        ZETASQL_RET_CHECK(tvf_scan->signature()->argument(i).is_model());
 -      arguments.push_back({.model = argument->model()->model()});
@@ -589,7 +656,7 @@ index a5e15879..4c320713 100644
  load("@com_google_protobuf//bazel:java_proto_library.bzl", "java_proto_library")
  load("@com_google_protobuf//bazel:proto_library.bzl", "proto_library")
 -load("@rules_cc//cc:cc_test.bzl", "cc_test")
- 
+
  # Placeholder: load py_binary
  load("//zetasql/resolved_ast:build_rules.bzl", "gen_resolved_ast_files")
 diff --git a/zetasql/resolved_ast/resolved_column.h b/zetasql/resolved_ast/resolved_column.h
