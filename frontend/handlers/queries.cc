@@ -39,9 +39,11 @@
 #include "common/errors.h"
 #include "frontend/common/protos.h"
 #include "frontend/common/validations.h"
+#include "frontend/converters/mutations.h"
 #include "frontend/converters/partition.h"
 #include "frontend/converters/query.h"
 #include "frontend/converters/reads.h"
+#include "frontend/converters/time.h"
 #include "frontend/converters/types.h"
 #include "frontend/converters/values.h"
 #include "frontend/entities/session.h"
@@ -647,6 +649,56 @@ absl::Status ExecuteBatchDml(RequestContext* ctx,
   });
 }
 REGISTER_GRPC_HANDLER(Spanner, ExecuteBatchDml);
+
+// Executes a batch of DML statements.
+absl::Status BatchWrite(
+    RequestContext* ctx, const spanner_api::BatchWriteRequest* request,
+    ServerStream<spanner_api::BatchWriteResponse>* stream) {
+  // Take shared ownerships of session so that it will keep valid throughout this function.
+  ZETASQL_ASSIGN_OR_RETURN(std::shared_ptr<Session> session,
+                   GetSession(ctx, request->session()));
+
+  for (int index = 0; index < request->mutation_groups_size(); ++index) {
+    const auto& group = request->mutation_groups(index);
+
+    spanner_api::TransactionOptions txn_options;
+    txn_options.mutable_read_write();
+    ZETASQL_ASSIGN_OR_RETURN(std::shared_ptr<Transaction> txn,
+                       session->CreateSingleUseTransaction(txn_options));
+
+    txn->GuardedCall(Transaction::OpType::kDml, [&]() -> absl::Status {
+      backend::Mutation mutation;
+      ZETASQL_RETURN_IF_ERROR(
+          MutationFromProto(*txn->schema(), group.mutations(), &mutation));
+
+      spanner_api::BatchWriteResponse response;
+
+      response.add_indexes(index);
+      *response.mutable_status() = StatusToProto(absl::OkStatus());
+
+      const auto result = txn->Write(mutation);
+      if (!result.ok()) {
+        *response.mutable_status() = StatusToProto(result);
+        txn->MaybeInvalidate(result);
+      } else {
+        // Actually commit the request.
+        const auto commit_result = txn->Commit();
+        if (!commit_result.ok()) {
+          *response.mutable_status() = StatusToProto(commit_result);
+        }
+        // Return commit timestamp to user.
+        ZETASQL_ASSIGN_OR_RETURN(absl::Time commit_timestamp, txn->GetCommitTimestamp());
+        ZETASQL_ASSIGN_OR_RETURN(*response.mutable_commit_timestamp(),
+                         TimestampToProto(commit_timestamp));
+      }
+
+      stream->Send(response);
+      return absl::OkStatus();
+    });
+  }
+  return absl::OkStatus();
+}
+REGISTER_GRPC_HANDLER(Spanner, BatchWrite);
 
 }  // namespace frontend
 }  // namespace emulator

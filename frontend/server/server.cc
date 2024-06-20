@@ -157,6 +157,10 @@ class SpannerService : public spanner_api::Spanner::Service {
                      spanner_api::ExecuteBatchDmlRequest,
                      spanner_api::ExecuteBatchDmlResponse);
 
+  // Batch
+  DEFINE_GRPC_METHOD(Spanner, BatchWrite, spanner_api::BatchWriteRequest,
+                     grpc::ServerWriter<spanner_api::BatchWriteResponse>);
+
   // Partitions.
   DEFINE_GRPC_METHOD(Spanner, PartitionRead, spanner_api::PartitionReadRequest,
                      spanner_api::PartitionResponse);
