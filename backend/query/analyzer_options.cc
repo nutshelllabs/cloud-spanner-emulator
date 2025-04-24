@@ -97,6 +97,8 @@ zetasql::LanguageOptions MakeGoogleSqlLanguageOptions() {
       zetasql::FEATURE_V_1_4_SQL_GRAPH_PATH_TYPE,
       zetasql::FEATURE_V_1_4_SQL_GRAPH_PATH_MODE,
       zetasql::FEATURE_V_1_4_FOR_UPDATE,
+      zetasql::FEATURE_JSON_KEYS_FUNCTION,
+      zetasql::FEATURE_JSON_MUTATOR_FUNCTIONS,
   });
   if (EmulatorFeatureFlags::instance().flags().enable_protos) {
     options.EnableLanguageFeature(zetasql::FEATURE_PROTO_BASE);
