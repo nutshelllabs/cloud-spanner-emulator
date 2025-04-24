@@ -246,6 +246,13 @@ const absl::flat_hash_set<absl::string_view>* SupportedZetaSQLFunctions() {
         "justify_hours",
         "justify_interval",
         "make_interval",
+
+        "json_set",
+        "json_remove",
+        "json_strip_nulls",
+        "json_array_insert",
+        "json_array_append",
+        "json_keys",
           // clang-format on
       };
   return supported_functions;
