@@ -89,6 +89,9 @@ absl::Status PropertyGraphValidator::ValidateGraphElementTable(
   for (const PropertyGraph::GraphElementTable& node_table :
        graph->NodeTables()) {
     graph_node_table_names.insert(node_table.name());
+    if (!node_table.alias().empty()) {
+      graph_node_table_names.insert(node_table.alias());
+    }
   }
   if (table->element_kind() == PropertyGraph::GraphElementKind::EDGE) {
     if (!graph_node_table_names.contains(

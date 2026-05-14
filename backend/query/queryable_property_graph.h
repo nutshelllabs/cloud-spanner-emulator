@@ -175,7 +175,12 @@ class QueryableGraphElementTableInternal {
       const google::spanner::emulator::backend::PropertyGraph::
           GraphElementTable* element_table);
 
-  std::string Name() const { return wrapped_element_table_->name(); }
+  std::string Name() const {
+    if (!wrapped_element_table_->alias().empty()) {
+      return wrapped_element_table_->alias();
+    }
+    return wrapped_element_table_->name();
+  }
   absl::Span<const std::string> PropertyGraphNamePath() const;
   std::string FullName() const;
 

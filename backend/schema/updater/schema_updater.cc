@@ -6463,7 +6463,7 @@ absl::Status SchemaUpdaterImpl::AddGraphElementTable(
   const googlesql::ResolvedTableScan* table_scan =
       element->input_scan()->GetAs<googlesql::ResolvedTableScan>();
   PropertyGraph::GraphElementTable new_element_table;
-  new_element_table.set_name(table_scan->table()->Name());
+  new_element_table.set_name(table_scan->table()->FullName());
   new_element_table.set_alias(element->alias());
 
   for (const auto& key : element->key_list()) {
