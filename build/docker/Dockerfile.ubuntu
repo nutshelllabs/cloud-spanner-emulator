@@ -65,12 +65,12 @@ RUN wget -O /usr/local/bin/bazel https://github.com/bazelbuild/bazelisk/releases
 # Build GoogleSQL to cache it for reuse in subsequent Docker builds.
 # GoogleSQL can take 3h+ to build, so caching it saves a lot of time.
 WORKDIR /src
-COPY build/bazel build/bazel/
-COPY MODULE.bazel MODULE.bazel.lock* .bazelversion .bazelrc BUILD.bazel \
-    requirements.txt go.mod go.sum ./
-RUN bazel build -c opt \
-    @com_google_googlesql//googlesql/public:value \
-    @com_google_googlesql//googlesql/public:analyzer
+# COPY build/bazel build/bazel/
+# COPY MODULE.bazel MODULE.bazel.lock* .bazelversion .bazelrc BUILD.bazel \
+#     requirements.txt go.mod go.sum ./
+# RUN bazel build -c opt \
+#     @com_google_googlesql//googlesql/public:value \
+#     @com_google_googlesql//googlesql/public:analyzer
 
 # Copy over the emulator code base into the container.
 COPY . .
@@ -82,9 +82,12 @@ RUN find third_party/spanner_pg -name "nodes.h" -exec sed -i 's/enum NodeTag : i
 # Since we are only copying the binaries to the release image, we don't need to
 # build the rest of the targets.
 ENV EXTRA_BAZEL_ARGS="--tool_java_runtime_version=local_jdk"
-RUN bazel build -c opt \
+RUN --mount=type=cache,id=bazel-amd64,target=/root/.cache/bazel        \
+    bazel build -c opt \
     //binaries:emulator_main \
-    //binaries:gateway_main
+    //binaries:gateway_main && \
+    mkdir out && cp bazel-bin/binaries/emulator_main out/emulator_main      && \
+    cp bazel-bin/binaries/gateway_main_/gateway_main out/gateway_main
 
 # Generate licenses file.
 RUN for file in $(find -L bazel-src/external                               \
@@ -105,8 +108,8 @@ RUN for file in $(find -L bazel-src/external                               \
 FROM gcr.io/distroless/cc-debian12
 
 # Copy binaries.
-COPY --from=build /src/bazel-bin/binaries/emulator_main .
-COPY --from=build /src/bazel-bin/binaries/gateway_main_/gateway_main .
+COPY --from=build /src/out/emulator_main .
+COPY --from=build /src/out/gateway_main .
 
 # Copy the libstdc++.so.6 shared library. We use wildcards to execute a conditional
 # copy depending on the target architecture.
