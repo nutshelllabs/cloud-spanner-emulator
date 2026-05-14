@@ -320,22 +320,6 @@ Catalog::Catalog(
     if (SDLObjectName::IsFullyQualifiedName(name)) {
       ABSL_LOG(FATAL) << "PropertyGraph not supported in named schemas. " << name;
     } else {
-      for (const auto& node_table : graph->NodeTables()) {
-        std::string node_table_name = node_table.name();
-        if (SDLObjectName::IsFullyQualifiedName(node_table_name)) {
-          ABSL_LOG(FATAL) << "PropertyGraph not supported in named schemas. "
-                     << "Element table is within a named schema: "
-                     << node_table_name;
-        }
-      }
-      for (const auto& edge_table : graph->EdgeTables()) {
-        std::string edge_table_name = edge_table.name();
-        if (SDLObjectName::IsFullyQualifiedName(edge_table_name)) {
-          ABSL_LOG(FATAL) << "PropertyGraph not supported in named schemas. "
-                     << "Element table is within a named schema: "
-                     << edge_table_name;
-        }
-      }
       property_graphs_[graph->Name()] =
           std::make_unique<QueryablePropertyGraph>(this, type_factory, graph);
     }
