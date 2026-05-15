@@ -103,6 +103,7 @@ googlesql::LanguageOptions MakeGoogleSqlLanguageOptions() {
       googlesql::FEATURE_SQL_GRAPH_DYNAMIC_LABEL_PROPERTIES_IN_DDL,
       googlesql::FEATURE_SQL_GRAPH_DYNAMIC_LABEL_EXTENSION_IN_DDL,
       googlesql::FEATURE_SQL_GRAPH_DYNAMIC_ELEMENT_TYPE,
+      googlesql::FEATURE_SQL_GRAPH_EXPOSE_GRAPH_ELEMENT,
       googlesql::FEATURE_SQL_GRAPH_RETURN_EXTENSIONS,
       googlesql::FEATURE_UUID_TYPE,
       googlesql::FEATURE_FOR_UPDATE,
