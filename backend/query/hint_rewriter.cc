@@ -18,6 +18,7 @@
 
 #include "googlesql/resolved_ast/resolved_ast.h"
 #include "absl/status/status.h"
+#include "absl/strings/match.h"
 #include "googlesql/base/status_macros.h"
 
 namespace google {
@@ -25,12 +26,33 @@ namespace spanner {
 namespace emulator {
 namespace backend {
 
+namespace {
+
+constexpr absl::string_view kSpannerQueryEngineHintPrefix = "spanner";
+
+bool IsSpannerHint(const googlesql::ResolvedOption* node) {
+  return node->qualifier().empty() ||
+         absl::EqualsIgnoreCase(node->qualifier(),
+                                kSpannerQueryEngineHintPrefix);
+}
+
+bool IsNoopQueryPlannerHint(const googlesql::ResolvedOption* node) {
+  return IsSpannerHint(node) &&
+         (absl::EqualsIgnoreCase(node->name(), "join_method") ||
+          absl::EqualsIgnoreCase(node->name(), "force_join_order") ||
+          absl::EqualsIgnoreCase(node->name(), "optimizer_version"));
+}
+
+}  // namespace
+
 absl::Status HintRewriter::VisitResolvedOption(
     const googlesql::ResolvedOption* node) {
   GOOGLESQL_RETURN_IF_ERROR(CopyVisitResolvedOption(node));
   googlesql::ResolvedOption* option =
       GetUnownedTopOfStack<googlesql::ResolvedOption>();
-  if (option->qualifier().empty()) {
+  if (IsNoopQueryPlannerHint(node)) {
+    option->set_qualifier("spanner_emulator_noop");
+  } else if (option->qualifier().empty()) {
     option->set_qualifier("spanner");
   }
   return absl::OkStatus();

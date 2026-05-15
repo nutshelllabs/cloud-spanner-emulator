@@ -58,6 +58,7 @@ constexpr absl::string_view kSpannerQueryEngineHintPrefix = "spanner";
 
 // Hints related to adaptive execution.
 constexpr absl::string_view kHintEnableAdaptivePlans = "enable_adaptive_plans";
+constexpr absl::string_view kHintOptimizerVersion = "optimizer_version";
 
 // Parameter sensitive plans hint
 constexpr absl::string_view kHintParameterSensitive = "parameter_sensitive";
@@ -207,6 +208,10 @@ absl::Status QueryValidator::ValidateHints(
           return status;
         }
         GOOGLESQL_RETURN_IF_ERROR(CollectHintsForNode(hint, &hint_map));
+        // These hints are either implemented by emulator-side validation or are
+        // accepted as no-ops because the reference evaluator does not implement
+        // Spanner query planning hints.
+        hint->value()->MarkFieldsAccessed();
       } else if (absl::EqualsIgnoreCase(hint->qualifier(),
                                         kEmulatorQueryEngineHintPrefix)) {
         absl::Status status =
@@ -219,6 +224,7 @@ absl::Status QueryValidator::ValidateHints(
           return status;
         }
         GOOGLESQL_RETURN_IF_ERROR(CollectHintsForNode(hint, &emulator_hint_map));
+        hint->value()->MarkFieldsAccessed();
       } else {
         // Ignore hints intended for other engines. Mark the value used so an
         // 'Unimplemented' error is not raised.
@@ -312,6 +318,7 @@ absl::Status QueryValidator::CheckSpannerHintName(
            kHintParameterSensitive,
            kHashJoinExecution,
            kHintAllowSearchIndexesInTransaction,
+           kHintOptimizerVersion,
            kRequireEnhanceQuery,
            kEnhanceQueryTimeoutMs,
            kScanMethod,
@@ -383,6 +390,13 @@ absl::Status QueryValidator::CheckHintValue(
           {kScanMethod, googlesql::types::StringType()},
           {kHintPDMLMaxParallelism, googlesql::types::Int64Type()},
       }};
+
+  if (absl::EqualsIgnoreCase(name, kHintOptimizerVersion)) {
+    if (!value.type()->IsInt64() && !value.type()->IsString()) {
+      return error::InvalidHintValue(name, value.DebugString());
+    }
+    return absl::OkStatus();
+  }
 
   const auto& iter = supported_hint_types->find(name);
   GOOGLESQL_RET_CHECK(iter != supported_hint_types->cend());
