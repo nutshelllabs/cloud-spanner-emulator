@@ -51,6 +51,7 @@ type Options struct {
 	LogRequests                                    bool
 	EnableFaultInjection                           bool
 	DisableQueryNullFilteredIndexCheck             bool
+	AbortCurrentTransactionProbability             int
 	OverrideMaxDatabasesPerInstance                int
 	OverrideChangeStreamPartitionTokenAliveSeconds int
 	RemoteFunctionsHostPort                        string
@@ -81,6 +82,9 @@ func (gw *Gateway) Run() {
 	if gw.opts.DisableQueryNullFilteredIndexCheck {
 		emulatorArgs = append(emulatorArgs, "--disable_query_null_filtered_index_check")
 	}
+	emulatorArgs = append(emulatorArgs,
+		fmt.Sprintf("--abort_current_transaction_probability=%d",
+			gw.opts.AbortCurrentTransactionProbability))
 	if gw.opts.RemoteFunctionsHostPort != "" {
 		if !strings.HasPrefix(gw.opts.RemoteFunctionsHostPort, "localhost:") {
 			log.Fatal("Flag remote_functions_host_port must be `localhost:<port>`")

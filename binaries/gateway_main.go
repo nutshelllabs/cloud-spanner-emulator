@@ -54,6 +54,12 @@ var (
 			"requests to allow testing application abort-retry behavior).")
 	disableQueryNullFilteredIndexCheck = flag.Bool("disable_query_null_filtered_index_check", false,
 		"If true, then queries that use NULL_FILTERED indexes will be answered.")
+	abortCurrentTransactionProbability = flag.Int("abort_current_transaction_probability", 20,
+		"The probability that the emulator will try to abort the current "+
+			"transaction if a new transaction is requested. A higher value gives "+
+			"higher priority to new transactions. A lower value gives higher priority "+
+			"to the current transaction. A value of zero means that the emulator will "+
+			"never abort the current transaction.")
 	overrideMaxDatabasesPerInstance = flag.Int("override_max_databases_per_instance", 100,
 		"If set at a value greater than the default limit of Spanner, overrides the allowed "+
 			"maximum number of databases per instance. If the "+
@@ -160,6 +166,7 @@ func main() {
 		LogRequests:                        *logRequests,
 		EnableFaultInjection:               *enableFaultInjection,
 		DisableQueryNullFilteredIndexCheck: *disableQueryNullFilteredIndexCheck,
+		AbortCurrentTransactionProbability: *abortCurrentTransactionProbability,
 		OverrideMaxDatabasesPerInstance:    instanceDbs,
 		OverrideChangeStreamPartitionTokenAliveSeconds: overrideChangeStreamPartitionTokenAliveSeconds,
 		RemoteFunctionsHostPort:                        *remoteFunctionsHostPort,
