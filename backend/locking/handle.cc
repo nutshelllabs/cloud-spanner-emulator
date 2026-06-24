@@ -38,6 +38,7 @@ LockHandle::LockHandle(LockManager* manager, TransactionID tid,
       priority_(priority) {}
 
 LockHandle::~LockHandle() {
+  manager_->UnlockAll(this);
   absl::MutexLock lock(mu_);
   try_abort_transaction_fn_ = nullptr;
 }

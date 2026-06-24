@@ -74,7 +74,12 @@ MultiplexedSessionTransactionManager::GetCurrentTransactionOnMultiplexedSession(
 
 void MultiplexedSessionTransactionManager::RemoveFromCurrentTransactionsLocked(
     const std::string& database_uri, backend::TransactionID txn_id) {
-  current_transactions_.erase(std::make_pair(database_uri, txn_id));
+  auto it = current_transactions_.find(std::make_pair(database_uri, txn_id));
+  if (it == current_transactions_.end()) {
+    return;
+  }
+  it->second->Close();
+  current_transactions_.erase(it);
 }
 
 void MultiplexedSessionTransactionManager::ClearOldTransactionsLocked() {

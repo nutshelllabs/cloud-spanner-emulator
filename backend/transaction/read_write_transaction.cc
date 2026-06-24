@@ -323,6 +323,7 @@ void ReadWriteTransaction::Reset() {
 
   lock_handle_->UnlockAll();
   transaction_store_->Clear();
+  deleted_key_ranges_by_table_.clear();
   std::queue<WriteOp> empty;
   write_ops_queue_.swap(empty);
   state_ = State::kUninitialized;

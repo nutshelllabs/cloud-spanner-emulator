@@ -139,4 +139,4 @@ EXPOSE 9010 9020
 
 # Run the gateway process, bind to 0.0.0.0 as under MacOS, listening on
 # localhost will make the server invisible outside the container.
-CMD ["./gateway_main", "--hostname", "0.0.0.0"]
+CMD ["./gateway_main", "--hostname", "0.0.0.0", "--abort_current_transaction_probability", "0"]

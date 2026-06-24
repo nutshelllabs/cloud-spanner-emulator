@@ -17,6 +17,8 @@
 #ifndef THIRD_PARTY_CLOUD_SPANNER_EMULATOR_BACKEND_LOCKING_MANAGER_H_
 #define THIRD_PARTY_CLOUD_SPANNER_EMULATOR_BACKEND_LOCKING_MANAGER_H_
 
+#include <functional>
+#include <map>
 #include <memory>
 
 #include "absl/base/thread_annotations.h"
@@ -40,9 +42,8 @@ namespace backend {
 // happens via the LockHandle. See LockHandle methods for more details about
 // this interaction.
 //
-// We currently only implement a whole-database lock. The interface is generic
-// to avoid irreversibly baking the single-lock assumption into the rest of the
-// system.
+// This lock manager currently grants exclusive table-level locks. Schema
+// changes use a database-wide lock.
 class LockManager {
  public:
   explicit LockManager(Clock* clock) : clock_(clock) {}
@@ -68,11 +69,24 @@ class LockManager {
   absl::Status MarkCommitted(LockHandle* handle) ABSL_LOCKS_EXCLUDED(mu_);
   void WaitForSafeRead(absl::Time read_time) ABSL_LOCKS_EXCLUDED(mu_);
 
+  void ReleaseLocksForHandleLocked(LockHandle* handle)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
+  bool TryAbortHolderLocked(LockHandle* holder, LockHandle* requester)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
+  void AbortRequester(LockHandle* requester, LockHandle* holder)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
+
   // Mutex to guard state below.
   absl::Mutex mu_;
 
-  // The currently active transaction (only one transaction can be active).
-  LockHandle* active_handle_ ABSL_GUARDED_BY(mu_) = nullptr;
+  // The transaction currently holding a database-wide lock.
+  LockHandle* database_lock_holder_ ABSL_GUARDED_BY(mu_) = nullptr;
+
+  // The transaction currently holding each table-level lock.
+  std::map<TableID, LockHandle*> table_lock_holders_ ABSL_GUARDED_BY(mu_);
+
+  // The transaction currently reserving or publishing a commit timestamp.
+  LockHandle* pending_commit_handle_ ABSL_GUARDED_BY(mu_) = nullptr;
 
   // System wide monotonic clock used to provide commit and read timestamps.
   Clock* clock_;
