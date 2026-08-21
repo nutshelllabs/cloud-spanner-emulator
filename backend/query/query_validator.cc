@@ -142,13 +142,28 @@ constexpr absl::string_view kScanMethodBatch = "batch";
 constexpr absl::string_view kScanMethodRow = "row";
 constexpr absl::string_view kHintPDMLMaxParallelism = "pdml_max_parallelism";
 
+// Hint names are case-insensitive, but hint maps are keyed by the name exactly
+// as it was written in the query. Returns the value of the hint named `name`,
+// ignoring case, or nullptr if the node has no such hint.
+const googlesql::Value* FindHintIgnoreCase(
+    const absl::flat_hash_map<absl::string_view, googlesql::Value>&
+        node_hint_map,
+    absl::string_view name) {
+  for (const auto& [hint_name, hint_value] : node_hint_map) {
+    if (absl::EqualsIgnoreCase(hint_name, name)) {
+      return &hint_value;
+    }
+  }
+  return nullptr;
+}
+
 absl::Status CollectHintsForNode(
     const googlesql::ResolvedOption* hint,
     absl::flat_hash_map<absl::string_view, googlesql::Value>* node_hint_map) {
   GOOGLESQL_RET_CHECK_EQ(hint->value()->node_kind(), googlesql::RESOLVED_LITERAL);
   const googlesql::Value& value =
       hint->value()->GetAs<googlesql::ResolvedLiteral>()->value();
-  if (node_hint_map->contains(hint->name())) {
+  if (FindHintIgnoreCase(*node_hint_map, hint->name()) != nullptr) {
     return error::MultipleValuesForSameHint(hint->name());
   }
   (*node_hint_map)[hint->name()] = value;
@@ -443,17 +458,17 @@ absl::Status QueryValidator::CheckHintValue(
     }
   } else if (absl::EqualsIgnoreCase(name, kHashJoinBuildSide)) {
     bool is_hash_join = [&]() {
-      auto it = hint_map.find(kHintJoinMethod);
-      if (it != hint_map.end() &&
-          absl::EqualsIgnoreCase(it->second.string_value(),
-                                 kHintJoinTypeHash)) {
-        return true;
-      }
-      it = hint_map.find(kHintJoinTypeDeprecated);
-      if (it != hint_map.end() &&
-          absl::EqualsIgnoreCase(it->second.string_value(),
-                                 kHintJoinTypeHash)) {
-        return true;
+      for (const absl::string_view join_hint :
+           {kHintJoinMethod, kHintJoinTypeDeprecated}) {
+        // The join method hint's own value is validated separately, so only
+        // consider it here if it is a string.
+        const googlesql::Value* join_value =
+            FindHintIgnoreCase(hint_map, join_hint);
+        if (join_value != nullptr && join_value->type()->IsString() &&
+            absl::EqualsIgnoreCase(join_value->string_value(),
+                                   kHintJoinTypeHash)) {
+          return true;
+        }
       }
       return false;
     }();
