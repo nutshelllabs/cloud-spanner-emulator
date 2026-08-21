@@ -3,3 +3,7 @@ bazel-cloud-spanner-emulator
 bazel-genfiles
 bazel-out
 bazel-testlogs
+.clwb
+.idea
+.ijwb
+.bazelbsp
