@@ -472,13 +472,19 @@ absl::Status QueryValidator::CheckHintValue(
       }
       return false;
     }();
-    if (!is_hash_join) {
-      return error::InvalidHintForNode(kHashJoinBuildSide, "HASH joins");
-    }
     const std::string& string_value = value.string_value();
     if (!(absl::EqualsIgnoreCase(string_value, kHashJoinBuildSideLeft) ||
           absl::EqualsIgnoreCase(string_value, kHashJoinBuildSideRight))) {
       return error::InvalidHintValue(name, value.DebugString());
+    }
+    // Only enforce the "must accompany a hash join" rule for statement-level
+    // hints, where the join method hint is necessarily on the same node.
+    // On a join, array scan or subquery the hint is accepted without checking
+    // the join method: the reference evaluator ignores query planning hints
+    // regardless, so being stricter here only risks rejecting queries that
+    // Spanner itself accepts.
+    if (node_kind == googlesql::RESOLVED_QUERY_STMT && !is_hash_join) {
+      return error::InvalidHintForNode(kHashJoinBuildSide, "HASH joins");
     }
   } else if (absl::EqualsIgnoreCase(name, kHashJoinExecution)) {
     const std::string& string_value = value.string_value();
