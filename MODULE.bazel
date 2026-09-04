@@ -84,8 +84,9 @@ maven.install(
         "io.opencensus:opencensus-api:0.31.0",
         "io.opencensus:opencensus-contrib-grpc-metrics:0.31.0",
         "junit:junit:4.13.2",
-        "net.java.dev.javacc:javacc:7.0.3",
+        "net.java.dev.javacc:javacc:7.0.13",
     ],
+    lock_file = "//:maven_install.json",
     known_contributing_modules = [
         "cloud_spanner_emulator",
         "googlesql",
