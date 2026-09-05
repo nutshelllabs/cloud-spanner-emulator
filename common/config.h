@@ -17,6 +17,7 @@
 #ifndef THIRD_PARTY_CLOUD_SPANNER_EMULATOR_COMMON_CONFIG_H_
 #define THIRD_PARTY_CLOUD_SPANNER_EMULATOR_COMMON_CONFIG_H_
 
+#include <cstdint>
 #include <string>
 
 namespace google {
@@ -53,6 +54,9 @@ bool disable_query_null_filtered_index_check();
 int abort_current_transaction_probability();
 
 void set_abort_current_transaction_probability(int probability);
+
+// Upper bound on the bytes a single query may hold in intermediate results.
+int64_t max_intermediate_byte_size();
 
 }  // namespace config
 }  // namespace emulator
