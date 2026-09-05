@@ -2739,6 +2739,36 @@ TEST_P(QueryEngineTest, TestPropertyGraphChainedMatchOnSharedVariable) {
                   ElementsAre(Int64(1), Int64(4), Int64(1)))));
 }
 
+// Path extension indexes each factor by endpoint identifier. A factor with no
+// joinable rows must yield no paths, in a single pattern and after a chained
+// MATCH, without touching the surviving paths of earlier hops.
+TEST_P(QueryEngineTest, TestPropertyGraphDisconnectedFactorsYieldNoPaths) {
+  if (GetParam() == database_api::DatabaseDialect::POSTGRESQL) {
+    GTEST_SKIP();
+  }
+  for (const char* sql :
+       {"GRAPH test_graph "
+        "MATCH (a)-[e WHERE e.from_id > 100]->(b) "
+        "RETURN a.id AS a_id, b.id AS b_id",
+        "GRAPH test_graph "
+        "MATCH (a)-[]->(b) "
+        "MATCH (b)-[e WHERE e.to_id < 0]->(c) "
+        "RETURN a.id AS a_id, c.id AS c_id",
+        "GRAPH test_graph "
+        "MATCH (a)-[]->(b WHERE b.id > 100)-[]->(c) "
+        "RETURN a.id AS a_id, c.id AS c_id"}) {
+    GOOGLESQL_ASSERT_OK_AND_ASSIGN(
+        QueryResult result,
+        query_engine().ExecuteSql(Query{sql},
+                                  QueryContext{property_graph_schema(),
+                                               property_graph_reader()}));
+    ASSERT_NE(result.rows, nullptr) << sql;
+    EXPECT_THAT(GetAllColumnValues(std::move(result.rows)),
+                IsOkAndHolds(testing::IsEmpty()))
+        << sql;
+  }
+}
+
 TEST_P(QueryEngineTest, TestPropertyGraphChainedMatchWithPatternFilter) {
   if (GetParam() == database_api::DatabaseDialect::POSTGRESQL) {
     GTEST_SKIP();

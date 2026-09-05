@@ -232,9 +232,9 @@ bazel_dep(name = "google_benchmark", version = "1.8.3", repo_name = "com_github_
 bazel_dep(name = "googlesql", version = "2026.1.1", repo_name = "com_google_googlesql")
 git_override(
     module_name = "googlesql",
-    # GoogleSQL 2026.01.1 with emulator compatibility fixes and chained-MATCH
-    # inner joins maintained as commits in the public fork.
-    commit = "469025dc3a0883a9b34c9acf6e8b81d4acbea809",
+    # GoogleSQL 2026.01.1 with emulator compatibility fixes, chained-MATCH
+    # inner joins, and indexed graph path extension maintained in the public fork.
+    commit = "de056b6eb82533abb118ae7261cf17624a9311fd",
     remote = "https://github.com/nutshelllabs/googlesql.git",
 )
 
