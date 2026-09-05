@@ -16,6 +16,7 @@
 
 #include "common/config.h"
 
+#include <cstdint>
 #include <string>
 
 #include "absl/flags/flag.h"
@@ -51,6 +52,12 @@ ABSL_FLAG(
     "to the current transaction. A value of zero means that the emulator will "
     "never abort the current transaction.");
 
+ABSL_FLAG(int64_t, max_intermediate_byte_size, int64_t{4} << 30,
+          "Upper bound on the bytes a single query may hold in intermediate "
+          "results such as join, sort and WITH materializations. The "
+          "reference evaluator counts every copy of a value at its full "
+          "logical size, so this runs well ahead of process memory.");
+
 namespace google {
 namespace spanner {
 namespace emulator {
@@ -74,6 +81,10 @@ int abort_current_transaction_probability() {
 
 void set_abort_current_transaction_probability(int probability) {
   absl::SetFlag(&FLAGS_abort_current_transaction_probability, probability);
+}
+
+int64_t max_intermediate_byte_size() {
+  return absl::GetFlag(FLAGS_max_intermediate_byte_size);
 }
 
 }  // namespace config
