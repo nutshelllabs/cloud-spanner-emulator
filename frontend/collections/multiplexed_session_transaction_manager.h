@@ -60,6 +60,10 @@ class MultiplexedSessionTransactionManager {
   // Called occasionally to clear old transactions.
   void ClearOldTransactions();
 
+  // Closes and forgets every transaction of `database_uri`. Called when the
+  // database is dropped, so nothing keeps referring to it afterwards.
+  void ClearTransactionsForDatabase(const std::string& database_uri);
+
   // Evaluate if old transactions need to be cleared based on the last time
   // it was checked for clearing.
   void MaybeClearOldTransactions();

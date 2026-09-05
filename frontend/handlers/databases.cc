@@ -273,6 +273,11 @@ absl::Status DropDatabase(RequestContext* ctx,
     }
   }
 
+  // Multiplexed transactions live outside sessions. Close and forget the
+  // database's before it goes away.
+  ctx->env()->mux_txn_manager()->ClearTransactionsForDatabase(
+      request->database());
+
   // Clean up the database.
   return ctx->env()->database_manager()->DeleteDatabase(request->database());
 }
