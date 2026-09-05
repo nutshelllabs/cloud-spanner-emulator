@@ -111,7 +111,8 @@ class Transaction {
                   backend_transaction,
               const backend::QueryEngine* query_engine,
               const spanner_api::TransactionOptions& options,
-              const Usage& usage);
+              const Usage& usage,
+              std::shared_ptr<Database> database = nullptr);
 
   // Mark the transaction as closed. This indicates that the transaction is no
   // longer valid in the context of its owning session.  For example, prior
@@ -254,6 +255,12 @@ class Transaction {
 
   // The query engine for executing queries.
   const backend::QueryEngine* query_engine_;
+
+  // Keeps the database alive for as long as this transaction exists. The
+  // backend transaction's lock handle reports back to the database's lock
+  // manager when it is destroyed, and a multiplexed transaction can outlive
+  // both its session and DropDatabase.
+  std::shared_ptr<Database> database_;
 
   // True if this transaction should not be reused. In such a case, proto
   // representation of this transaction will not return transaction id.

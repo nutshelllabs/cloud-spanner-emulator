@@ -130,6 +130,36 @@ TEST_F(MultiplexedSessionTransactionManagerTest, ValidateTransactionAdded) {
                                                                 1));
 }
 
+TEST_F(MultiplexedSessionTransactionManagerTest,
+       ClearTransactionsForDatabaseLeavesOtherDatabasesAlone) {
+  MultiplexedSessionTransactionManager mux_txn_manager;
+  spanner_api::TransactionOptions options;
+  options.mutable_read_write();
+
+  std::shared_ptr<Transaction> dropped_txn = std::make_shared<Transaction>(
+      CreateReadWriteTransaction(1), nullptr, options,
+      Transaction::Usage::kMultiUse);
+  std::shared_ptr<Transaction> other_txn = std::make_shared<Transaction>(
+      CreateReadWriteTransaction(2), nullptr, options,
+      Transaction::Usage::kMultiUse);
+  GOOGLESQL_ASSERT_OK(
+      mux_txn_manager.AddToCurrentTransactions(dropped_txn, kDatabaseUri, 1));
+  GOOGLESQL_ASSERT_OK(
+      mux_txn_manager.AddToCurrentTransactions(other_txn, kDatabaseUri2, 2));
+
+  mux_txn_manager.ClearTransactionsForDatabase(kDatabaseUri);
+
+  // The dropped database's transaction is closed and forgotten.
+  EXPECT_TRUE(dropped_txn->IsClosed());
+  EXPECT_THAT(mux_txn_manager.GetCurrentTransactionOnMultiplexedSession(
+                  kDatabaseUri, 1),
+              StatusIs(absl::StatusCode::kNotFound));
+  // The other database's transaction is untouched.
+  EXPECT_FALSE(other_txn->IsClosed());
+  GOOGLESQL_EXPECT_OK(mux_txn_manager.GetCurrentTransactionOnMultiplexedSession(
+      kDatabaseUri2, 2));
+}
+
 TEST_F(MultiplexedSessionTransactionManagerTest, ClearStaleTransactions) {
   // Create a mux transaction manager that runs a check if its been more than 1
   // second since the last check.
