@@ -18,7 +18,7 @@
 #                                     BUILD                                    #
 ################################################################################
 
-FROM ubuntu:22.04 as build
+FROM ubuntu:22.04 AS build
 
 # Keep the bulk of the APT installs in one layer to reduce image size. The
 # PPA setup and the toolchain install get their own layers so that a network
@@ -97,8 +97,8 @@ RUN find third_party/spanner_pg -name "nodes.h" -exec sed -i 's/enum NodeTag : i
 # Since we are only copying the binaries to the release image, we don't need to
 # build the rest of the targets.
 ENV EXTRA_BAZEL_ARGS="--tool_java_runtime_version=local_jdk"
-RUN --mount=type=cache,id=bazel-amd64,target=/root/.cache/bazel        \
-    bazel build -c opt \
+RUN --mount=type=cache,id=bazel-${TARGETARCH},target=/root/.cache/bazel \
+    bazel build --jobs=2 -c opt \
     //binaries:emulator_main \
     //binaries:gateway_main && \
     mkdir out && cp bazel-bin/binaries/emulator_main out/emulator_main      && \
