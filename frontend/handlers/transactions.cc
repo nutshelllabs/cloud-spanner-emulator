@@ -25,6 +25,11 @@
 #include "absl/status/statusor.h"
 #include "absl/time/time.h"
 #include "backend/access/write.h"
+#include <set>
+#include "absl/strings/str_cat.h"
+#include "absl/strings/str_join.h"
+#include "absl/time/clock.h"
+#include "common/request_stats.h"
 #include "common/errors.h"
 #include "frontend/converters/mutations.h"
 #include "frontend/converters/time.h"
@@ -85,9 +90,39 @@ absl::Status BeginTransaction(
 REGISTER_GRPC_HANDLER(Spanner, BeginTransaction);
 
 // Commits a transaction.
+// The tables a commit touches, as the shape request stats aggregate by.
+std::string CommitShape(const spanner_api::CommitRequest& request) {
+  std::set<std::string> tables;
+  for (const spanner_api::Mutation& mutation : request.mutations()) {
+    switch (mutation.operation_case()) {
+      case spanner_api::Mutation::kInsert:
+        tables.insert(mutation.insert().table());
+        break;
+      case spanner_api::Mutation::kUpdate:
+        tables.insert(mutation.update().table());
+        break;
+      case spanner_api::Mutation::kInsertOrUpdate:
+        tables.insert(mutation.insert_or_update().table());
+        break;
+      case spanner_api::Mutation::kReplace:
+        tables.insert(mutation.replace().table());
+        break;
+      case spanner_api::Mutation::kDelete:
+        tables.insert(mutation.delete_().table());
+        break;
+      default:
+        break;
+    }
+  }
+  return absl::StrCat("commit ", absl::StrJoin(tables, ","));
+}
+
 absl::Status Commit(RequestContext* ctx,
                     const spanner_api::CommitRequest* request,
                     spanner_api::CommitResponse* response) {
+  const absl::Time start_time = absl::Now();
+  absl::Duration convert_time, write_time, commit_time;
+
   // Get session information.
   GOOGLESQL_ASSIGN_OR_RETURN(std::shared_ptr<Session> session,
                    GetSession(ctx, request->session()));
@@ -111,51 +146,71 @@ absl::Status Commit(RequestContext* ctx,
   GOOGLESQL_ASSIGN_OR_RETURN(std::shared_ptr<Transaction> txn, maybe_txn);
 
   // Wrap all operations on this transaction so they are atomic .
-  return txn->GuardedCall(Transaction::OpType::kCommit, [&]() -> absl::Status {
-    // Cannot commit a ReadOnlyTransaction.
-    if (txn->IsReadOnly()) {
-      return error::CannotCommitRollbackReadOnlyOrPartitionedDmlTransaction();
-    }
+  absl::Status status = txn->GuardedCall(
+      Transaction::OpType::kCommit, [&]() -> absl::Status {
+        // Cannot commit a ReadOnlyTransaction.
+        if (txn->IsReadOnly()) {
+          return error::
+              CannotCommitRollbackReadOnlyOrPartitionedDmlTransaction();
+        }
 
-    // Cannot commit after transaction has been rolled back or encountered a
-    // non-recoverable error.
-    if (txn->IsInvalid()) {
-      return error::CannotUseTransactionAfterConstraintError();
-    }
-    if (txn->IsRolledback()) {
-      return error::CannotCommitAfterRollback();
-    }
+        // Cannot commit after transaction has been rolled back or encountered
+        // a non-recoverable error.
+        if (txn->IsInvalid()) {
+          return error::CannotUseTransactionAfterConstraintError();
+        }
+        if (txn->IsRolledback()) {
+          return error::CannotCommitAfterRollback();
+        }
 
-    // Commit should be indempotent.
-    if (txn->IsCommitted()) {
-      GOOGLESQL_ASSIGN_OR_RETURN(absl::Time commit_timestamp, txn->GetCommitTimestamp());
-      GOOGLESQL_ASSIGN_OR_RETURN(*response->mutable_commit_timestamp(),
-                       TimestampToProto(commit_timestamp));
-      return absl::OkStatus();
-    }
+        // Commit should be indempotent.
+        if (txn->IsCommitted()) {
+          GOOGLESQL_ASSIGN_OR_RETURN(absl::Time commit_timestamp,
+                           txn->GetCommitTimestamp());
+          GOOGLESQL_ASSIGN_OR_RETURN(*response->mutable_commit_timestamp(),
+                           TimestampToProto(commit_timestamp));
+          return absl::OkStatus();
+        }
 
-    // Process mutations and write to transaction store.
-    backend::Mutation mutation;
-    GOOGLESQL_RETURN_IF_ERROR(
-        MutationFromProto(*txn->schema(), request->mutations(), &mutation));
-    GOOGLESQL_RETURN_IF_ERROR(txn->Write(mutation));
+        // Process mutations and write to transaction store.
+        absl::Time phase_start = absl::Now();
+        backend::Mutation mutation;
+        GOOGLESQL_RETURN_IF_ERROR(
+            MutationFromProto(*txn->schema(), request->mutations(), &mutation));
+        convert_time = absl::Now() - phase_start;
+        phase_start = absl::Now();
+        GOOGLESQL_RETURN_IF_ERROR(txn->Write(mutation));
+        write_time = absl::Now() - phase_start;
 
-    if (txn->IsReadWrite() && session->multiplexed() && !is_single_use &&
-        !request->has_precommit_token()) {
-      // A lightweight commit retry protocol.
-      response->mutable_precommit_token();
-      return absl::OkStatus();
-    }
+        if (txn->IsReadWrite() && session->multiplexed() && !is_single_use &&
+            !request->has_precommit_token()) {
+          // A lightweight commit retry protocol.
+          response->mutable_precommit_token();
+          return absl::OkStatus();
+        }
 
-    // Actually commit the request.
-    GOOGLESQL_RETURN_IF_ERROR(txn->Commit());
+        // Actually commit the request.
+        phase_start = absl::Now();
+        GOOGLESQL_RETURN_IF_ERROR(txn->Commit());
+        commit_time = absl::Now() - phase_start;
 
-    // Return commit timestamp to user.
-    GOOGLESQL_ASSIGN_OR_RETURN(absl::Time commit_timestamp, txn->GetCommitTimestamp());
-    GOOGLESQL_ASSIGN_OR_RETURN(*response->mutable_commit_timestamp(),
-                     TimestampToProto(commit_timestamp));
-    return absl::OkStatus();
+        // Return commit timestamp to user.
+        GOOGLESQL_ASSIGN_OR_RETURN(absl::Time commit_timestamp,
+                         txn->GetCommitTimestamp());
+        GOOGLESQL_ASSIGN_OR_RETURN(*response->mutable_commit_timestamp(),
+                         TimestampToProto(commit_timestamp));
+        return absl::OkStatus();
+      });
+  RequestStats::Instance().Record(RequestSample{
+      .kind = "commit",
+      .text = CommitShape(*request),
+      .elapsed = absl::Now() - start_time,
+      .phases = {{"convert", convert_time},
+                 {"write", write_time},
+                 {"commit", commit_time}},
+      .rows = request->mutations_size(),
   });
+  return status;
 }
 REGISTER_GRPC_HANDLER(Spanner, Commit);
 

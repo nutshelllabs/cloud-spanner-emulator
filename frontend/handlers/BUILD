@@ -435,6 +435,9 @@ cc_library(
     deps = [
         "//backend/access:write",
         "//common:errors",
+        "//common:request_stats",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/time",
         "//frontend/converters:mutations",
         "//frontend/converters:time",
         "//frontend/entities:session",
@@ -442,7 +445,6 @@ cc_library(
         "//frontend/server:handler",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
-        "@com_google_absl//absl/time",
         "@com_google_googleapis//google/spanner/v1:spanner_cc_grpc",
         "@com_google_googleapis//google/spanner/v1:spanner_cc_proto",
         "@com_google_googlesql//googlesql/base:status",

@@ -107,6 +107,22 @@ cc_library(
 )
 
 cc_library(
+    name = "request_stats",
+    srcs = ["request_stats.cc"],
+    hdrs = ["request_stats.h"],
+    deps = [
+        ":config",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/hash",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+    ],
+)
+
+cc_library(
     name = "feature_flags",
     hdrs = ["feature_flags.h"],
     deps = [

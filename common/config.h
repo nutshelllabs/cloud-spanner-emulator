@@ -58,6 +58,12 @@ void set_abort_current_transaction_probability(int probability);
 // Upper bound on the bytes a single query may hold in intermediate results.
 int64_t max_intermediate_byte_size();
 
+// Seconds between logged request timing summaries; zero disables them.
+int request_stats_log_interval_seconds();
+
+// Requests at least this slow are logged individually; zero disables it.
+int log_slow_requests_ms();
+
 }  // namespace config
 }  // namespace emulator
 }  // namespace spanner

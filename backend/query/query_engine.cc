@@ -93,6 +93,7 @@
 #include "common/errors.h"
 #include "common/feature_flags.h"
 #include "common/limits.h"
+#include "common/request_stats.h"
 #include "frontend/converters/values.h"
 #include "googlesql/base/ret_check.h"
 #include "googlesql/base/status_macros.h"
@@ -1361,6 +1362,16 @@ absl::StatusOr<QueryResult> QueryEngine::ExecuteSql(
     const Query& query, const QueryContext& context,
     v1::ExecuteSqlRequest_QueryMode query_mode) const {
   absl::Time start_time = absl::Now();
+  // A view body is evaluated through this same function from inside the
+  // enclosing query. Nesting depth tells the two apart for request stats.
+  static thread_local int nesting_depth = 0;
+  struct NestingGuard {
+    NestingGuard() { ++nesting_depth; }
+    ~NestingGuard() { --nesting_depth; }
+  } nesting_guard;
+  const bool is_view_query = nesting_depth > 1;
+  absl::Duration catalog_time;
+  absl::Duration analyze_time;
 
   Query normalized_query;
   NormalizeParameterNames(context.schema, query, &normalized_query);
@@ -1372,34 +1383,44 @@ absl::StatusOr<QueryResult> QueryEngine::ExecuteSql(
 
   QueryEvaluatorForEngine view_evaluator(*this, context,
                                          normalized_query.secure_context);
+  absl::Time phase_start = absl::Now();
   auto catalog = std::make_unique<Catalog>(
       context.schema, &function_catalog_, type_factory_, analyzer_options,
       context.reader, &view_evaluator,
       normalized_query.change_stream_internal_lookup,
       normalized_query.secure_context);
+  catalog_time += absl::Now() - phase_start;
 
   std::unique_ptr<const googlesql::AnalyzerOutput> analyzer_output;
   if (context.schema->dialect() == database_api::DatabaseDialect::POSTGRESQL &&
       !normalized_query.change_stream_internal_lookup.has_value()) {
+    phase_start = absl::Now();
     GOOGLESQL_ASSIGN_OR_RETURN(
         analyzer_output,
         AnalyzePostgreSQL(normalized_query.sql, catalog.get(), analyzer_options,
                           type_factory_, &function_catalog_));
+    analyze_time += absl::Now() - phase_start;
 
   } else {
+    phase_start = absl::Now();
     GOOGLESQL_ASSIGN_OR_RETURN(analyzer_output,
                      Analyze(normalized_query.sql, catalog.get(),
                              analyzer_options, type_factory_));
+    analyze_time += absl::Now() - phase_start;
 
     if (analyzer_output->has_graph_references()) {
       analyzer_options.set_prune_unused_columns(false);
+      phase_start = absl::Now();
       catalog = std::make_unique<Catalog>(
           context.schema, &function_catalog_, type_factory_, analyzer_options,
           context.reader, &view_evaluator,
           normalized_query.change_stream_internal_lookup);
+      catalog_time += absl::Now() - phase_start;
+      phase_start = absl::Now();
       GOOGLESQL_ASSIGN_OR_RETURN(analyzer_output,
                        Analyze(normalized_query.sql, catalog.get(),
                                analyzer_options, type_factory_));
+      analyze_time += absl::Now() - phase_start;
     }
   }
 
@@ -1424,6 +1445,7 @@ absl::StatusOr<QueryResult> QueryEngine::ExecuteSql(
   }
 
   QueryResult result;
+  const absl::Time evaluate_start = absl::Now();
   if (!IsDMLStmt(analyzer_output->resolved_statement()->node_kind())) {
     GOOGLESQL_ASSIGN_OR_RETURN(
         auto cursor,
@@ -1501,7 +1523,18 @@ absl::StatusOr<QueryResult> QueryEngine::ExecuteSql(
   for (auto const& param : normalized_query.declared_params) {
     result.parameter_types.insert({param.first, param.second.type()});
   }
-  result.elapsed_time = absl::Now() - start_time;
+  const absl::Time end_time = absl::Now();
+  result.elapsed_time = end_time - start_time;
+  RequestStats::Instance().Record(RequestSample{
+      .kind = is_view_query ? "view" : "query",
+      .text = query.sql,
+      .elapsed = result.elapsed_time,
+      .phases = {{"catalog", catalog_time},
+                 {"analyze", analyze_time},
+                 {"evaluate", end_time - evaluate_start}},
+      .rows = result.rows != nullptr ? result.num_output_rows
+                                     : result.modified_row_count,
+  });
   return result;
 }
 

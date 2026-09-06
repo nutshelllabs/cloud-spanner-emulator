@@ -52,6 +52,15 @@ ABSL_FLAG(
     "to the current transaction. A value of zero means that the emulator will "
     "never abort the current transaction.");
 
+ABSL_FLAG(int, request_stats_log_interval_seconds, 0,
+          "If positive, log a table of request timings aggregated by request "
+          "shape (queries, nested view queries and commits) every this many "
+          "seconds. Zero disables aggregation.");
+
+ABSL_FLAG(int, log_slow_requests_ms, 0,
+          "If positive, log every query and commit that takes at least this "
+          "many milliseconds, with its phase breakdown. Zero disables it.");
+
 ABSL_FLAG(int64_t, max_intermediate_byte_size, int64_t{4} << 30,
           "Upper bound on the bytes a single query may hold in intermediate "
           "results such as join, sort and WITH materializations. The "
@@ -82,6 +91,12 @@ int abort_current_transaction_probability() {
 void set_abort_current_transaction_probability(int probability) {
   absl::SetFlag(&FLAGS_abort_current_transaction_probability, probability);
 }
+
+int request_stats_log_interval_seconds() {
+  return absl::GetFlag(FLAGS_request_stats_log_interval_seconds);
+}
+
+int log_slow_requests_ms() { return absl::GetFlag(FLAGS_log_slow_requests_ms); }
 
 int64_t max_intermediate_byte_size() {
   return absl::GetFlag(FLAGS_max_intermediate_byte_size);
