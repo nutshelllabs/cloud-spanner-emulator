@@ -35,6 +35,7 @@
 // Peak RSS includes the embedded emulator and the benchmark client.
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -46,6 +47,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -60,6 +62,7 @@
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "common/config.h"
 #include "common/feature_flags.h"
 #include "frontend/server/server.h"
 #include "gmock/gmock.h"
@@ -191,6 +194,13 @@ class GraphProducerBenchmarkEnvironment : public testing::Environment {
         }) {}
 
   void SetUp() override {
+    const int probability =
+        EnvInt("GRAPH_BENCH_ABORT_PROBABILITY",
+               config::abort_current_transaction_probability());
+    ASSERT_GE(probability, 0);
+    ASSERT_LE(probability, 100);
+    config::set_abort_current_transaction_probability(probability);
+    ABSL_LOG(INFO) << "GRAPH_PRODUCER abort_probability=" << probability;
     frontend::Server::Options options;
     options.server_address = "localhost:0";
     server_ = frontend::Server::Create(options);
@@ -620,6 +630,66 @@ TEST_F(GraphProducerBenchmark, ProducerStages) {
   if (stages.contains("c")) {
     RunStage("aggregate", TypeUrl("job.AggregateJob"), ExpectedAggregateJobs());
   }
+}
+
+class ContendedCommitBenchmark : public DatabaseTest {
+ protected:
+  absl::Status SetUpDatabase() override {
+    return SetSchema(
+        {"CREATE TABLE RetryCounter (Id INT64 NOT NULL, "
+         "CounterValue INT64 NOT NULL) PRIMARY KEY (Id)"});
+  }
+};
+
+// Unlike the graph fixtures' serial setup writes, these transactions contend
+// on the same row. The client must retry aborted transactions without losing
+// or duplicating committed increments.
+TEST_F(ContendedCommitBenchmark, RetriesPreserveEveryIncrement) {
+  GOOGLESQL_ASSERT_OK(Insert("RetryCounter", {"Id", "CounterValue"}, {1, 0}));
+  constexpr int kWriters = 4;
+  constexpr int kIncrements = 50;
+  std::atomic<bool> start{false};
+  std::atomic<int> attempts{0};
+  std::atomic<int> committed{0};
+  std::vector<std::thread> writers;
+  for (int i = 0; i < kWriters; ++i) {
+    writers.emplace_back([&] {
+      while (!start.load()) std::this_thread::yield();
+      for (int j = 0; j < kIncrements; ++j) {
+        auto result = client().Commit(
+            [&](Transaction const& txn) -> google::cloud::StatusOr<Mutations> {
+              ++attempts;
+              auto updated = client().ExecuteDml(
+                  txn,
+                  SqlStatement("UPDATE RetryCounter SET "
+                               "CounterValue = CounterValue + 1 WHERE Id = 1"));
+              if (!updated) return updated.status();
+              // Leave time for another transaction to request the held lock.
+              std::this_thread::sleep_for(std::chrono::milliseconds(2));
+              return Mutations{};
+            });
+        if (!result) {
+          ADD_FAILURE() << result.status();
+          return;
+        }
+        ++committed;
+      }
+    });
+  }
+  start.store(true);
+  for (auto& writer : writers) writer.join();
+  EXPECT_EQ(committed.load(), kWriters * kIncrements);
+  EXPECT_GT(attempts.load(), committed.load());
+  GOOGLESQL_ASSERT_OK_AND_ASSIGN(
+      auto rows, Query("SELECT CounterValue FROM RetryCounter WHERE Id = 1"));
+  ASSERT_EQ(rows.size(), 1);
+  auto value = rows[0].values()[0].get<int64_t>();
+  ASSERT_TRUE(value.ok()) << value.status();
+  EXPECT_EQ(*value, kWriters * kIncrements);
+  ABSL_LOG(INFO) << "GRAPH_RETRIES abort_probability="
+                 << config::abort_current_transaction_probability()
+                 << " attempts=" << attempts.load()
+                 << " committed=" << committed.load();
 }
 
 }  // namespace

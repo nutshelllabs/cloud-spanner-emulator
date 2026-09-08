@@ -23,6 +23,7 @@ cc_test(
     ],
     tags = ["manual"],
     deps = [
+        "//common:config",
         "//common:feature_flags",
         "//frontend/server",
         "//tests/common:file_based_schema_reader",
@@ -61,6 +62,7 @@ cc_test(
     ],
     tags = ["manual"],
     deps = [
+        "//common:config",
         "//common:feature_flags",
         "//frontend/server",
         "//tests/common:file_based_schema_reader",

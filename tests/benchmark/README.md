@@ -61,6 +61,7 @@ bazel test -c opt //tests/benchmark:graph_producer_benchmark \
 | `GRAPH_BENCH_ITEMS` | Scanner: 310; producer: 5000 | Number of generated items |
 | `GRAPH_BENCH_ITERATIONS` | Scanner: 3; producer: 1 | Timed executions per selected workload |
 | `GRAPH_BENCH_PAYLOAD_BYTES` | 1200 | Deterministic filler bytes per artifact; jobs and flags use smaller fractions |
+| `GRAPH_BENCH_ABORT_PROBABILITY` | Emulator default (20) | Percent chance of trying to abort a lock holder; use 3 for the low-abort check |
 | `GRAPH_BENCH_VERSIONS` | 2 | Scanner: historical versions on every third item |
 | `GRAPH_BENCH_SCANNERS` | All four | Comma-separated scanner names |
 | `GRAPH_BENCH_STAGES` | `a,b,c` | Producer stages to time; prerequisite data is still seeded |
@@ -77,3 +78,9 @@ selected workloads, and runner resources fixed when comparing implementations.
 The producer retains its explicit process-exit teardown behavior; the scanner
 can exercise orderly teardown using the flags above. Both targets are tagged
 `manual` and must be selected explicitly.
+
+The producer target also runs a separate contended-write test: four writers
+increment one counter 50 times each using the client's transaction retries.
+It verifies that retries occurred and that all 200 increments were committed
+exactly once. `GRAPH_RETRIES` reports callback attempts and committed writes.
+This tests retry correctness; it does not measure the full Oak workflow.

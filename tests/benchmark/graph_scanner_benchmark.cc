@@ -56,6 +56,7 @@
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "common/config.h"
 #include "common/feature_flags.h"
 #include "frontend/server/server.h"
 #include "gmock/gmock.h"
@@ -200,6 +201,13 @@ class GraphScannerBenchmarkEnvironment : public testing::Environment {
         }) {}
 
   void SetUp() override {
+    const int probability =
+        EnvInt("GRAPH_BENCH_ABORT_PROBABILITY",
+               config::abort_current_transaction_probability());
+    ASSERT_GE(probability, 0);
+    ASSERT_LE(probability, 100);
+    config::set_abort_current_transaction_probability(probability);
+    ABSL_LOG(INFO) << "GRAPH_BENCH abort_probability=" << probability;
     frontend::Server::Options options;
     options.server_address = "localhost:0";
     server_ = frontend::Server::Create(options);
