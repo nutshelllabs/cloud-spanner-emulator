@@ -1088,6 +1088,68 @@ TEST_P(QueryEngineTest, ExecuteSqlAcceptsNonNullUntypedParameter) {
   EXPECT_THAT(GetParamTypes(result), ElementsAre(TimestampType(), DateType()));
 }
 
+// An edge pattern's own hints and the hints on either side reach validation
+// together. Repeated no-op planner hints must remain harmless.
+TEST_P(QueryEngineTest, ExecuteSqlAcceptsRepeatedJoinMethodHintsOnGraphEdge) {
+  if (GetParam() == POSTGRESQL) {
+    GTEST_SKIP();
+  }
+  Query query{
+      "GRAPH test_graph "
+      "MATCH @{JOIN_METHOD=APPLY_JOIN} (a) "
+      "@{JOIN_METHOD=APPLY_JOIN} -[]-> @{JOIN_METHOD=APPLY_JOIN} (b) "
+      "RETURN a.id AS a_id, b.id AS b_id"};
+  GOOGLESQL_ASSERT_OK_AND_ASSIGN(
+      QueryResult result,
+      query_engine().ExecuteSql(query, QueryContext{property_graph_schema(),
+                                                    property_graph_reader()}));
+  ASSERT_NE(result.rows, nullptr);
+  EXPECT_THAT(
+      GetAllColumnValues(std::move(result.rows)),
+      IsOkAndHolds(UnorderedElementsAre(
+          ElementsAre(Int64(1), Int64(2)), ElementsAre(Int64(2), Int64(4)),
+          ElementsAre(Int64(4), Int64(1)), ElementsAre(Int64(1), Int64(4)))));
+}
+
+TEST_P(QueryEngineTest, ExecuteSqlAcceptsHashJoinBuildSideOnJoin) {
+  if (GetParam() == POSTGRESQL) {
+    GTEST_SKIP();
+  }
+  for (const char* sql :
+       {"SELECT t1.string_col FROM test_table t1 "
+        "LEFT JOIN@{JOIN_METHOD=HASH_JOIN,HASH_JOIN_BUILD_SIDE=BUILD_RIGHT} "
+        "test_table t2 ON t2.int64_col = t1.int64_col",
+        "SELECT t1.string_col FROM test_table t1 "
+        "LEFT JOIN@{HASH_JOIN_BUILD_SIDE=BUILD_RIGHT} "
+        "test_table t2 ON t2.int64_col = t1.int64_col"}) {
+    SCOPED_TRACE(sql);
+    GOOGLESQL_ASSERT_OK_AND_ASSIGN(
+        QueryResult result, query_engine().ExecuteSql(
+                                Query{sql}, QueryContext{schema(), reader()}));
+    ASSERT_NE(result.rows, nullptr);
+    EXPECT_THAT(GetAllColumnValues(std::move(result.rows)),
+                IsOkAndHolds(UnorderedElementsAre(
+                    ElementsAre(String("one")), ElementsAre(String("two")),
+                    ElementsAre(String("four")))));
+  }
+}
+
+TEST_P(QueryEngineTest, ExecuteSqlRejectsInvalidHashJoinBuildSide) {
+  if (GetParam() == POSTGRESQL) {
+    GTEST_SKIP();
+  }
+  for (const char* sql : {"@{HASH_JOIN_BUILD_SIDE=BUILD_RIGHT} "
+                          "SELECT string_col FROM test_table",
+                          "SELECT t1.string_col FROM test_table t1 "
+                          "LEFT JOIN@{HASH_JOIN_BUILD_SIDE=INVALID_SIDE} "
+                          "test_table t2 ON t2.int64_col = t1.int64_col"}) {
+    SCOPED_TRACE(sql);
+    EXPECT_THAT(
+        query_engine().ExecuteSql(Query{sql}, QueryContext{schema(), reader()}),
+        StatusIs(absl::StatusCode::kInvalidArgument));
+  }
+}
+
 TEST_P(QueryEngineTest, ExecuteSqlSelectsOneColumnFromTableWithForceIndexHint) {
   std::string hint = (GetParam() == POSTGRESQL)
                          ? "/*@ force_index=test_index */"
