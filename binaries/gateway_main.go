@@ -73,6 +73,9 @@ var (
 		"If true, the emulator will print all third-party notices to stdout.")
 	remoteFunctionsHostPort = flag.String("remote_functions_host_port", "",
 		"The host:port to use for remote functions.")
+	maxIntermediateByteSize = flag.Int64("max_intermediate_byte_size", 4<<30,
+		"Upper bound on the bytes a single query may hold in intermediate results such as "+
+			"join, sort and WITH materializations.")
 )
 
 // resolveGRPCBinary figures out the full path to the grpc binary from the --grpc_binary flag.
@@ -170,6 +173,7 @@ func main() {
 		OverrideMaxDatabasesPerInstance:    instanceDbs,
 		OverrideChangeStreamPartitionTokenAliveSeconds: overrideChangeStreamPartitionTokenAliveSeconds,
 		RemoteFunctionsHostPort:                        *remoteFunctionsHostPort,
+		MaxIntermediateByteSize:                        *maxIntermediateByteSize,
 	}
 	gw := gateway.New(gwopts)
 	gw.Run()

@@ -2715,6 +2715,101 @@ TEST_P(QueryEngineTest, TestPropertyGraphBasicQuery) {
                                                 ElementsAre(Int64(4)))));
 }
 
+TEST_P(QueryEngineTest, TestPropertyGraphChainedMatchOnSharedVariable) {
+  if (GetParam() == database_api::DatabaseDialect::POSTGRESQL) {
+    GTEST_SKIP();
+  }
+  Query query{
+      "GRAPH test_graph "
+      "MATCH (a)-[]->(b) "
+      "MATCH (b)-[]->(c) "
+      "RETURN a.id AS a_id, b.id AS b_id, c.id AS c_id"};
+  GOOGLESQL_ASSERT_OK_AND_ASSIGN(
+      QueryResult result,
+      query_engine().ExecuteSql(query, QueryContext{property_graph_schema(),
+                                                    property_graph_reader()}));
+
+  ASSERT_NE(result.rows, nullptr);
+  EXPECT_THAT(GetAllColumnValues(std::move(result.rows)),
+              IsOkAndHolds(UnorderedElementsAre(
+                  ElementsAre(Int64(1), Int64(2), Int64(4)),
+                  ElementsAre(Int64(2), Int64(4), Int64(1)),
+                  ElementsAre(Int64(4), Int64(1), Int64(2)),
+                  ElementsAre(Int64(4), Int64(1), Int64(4)),
+                  ElementsAre(Int64(1), Int64(4), Int64(1)))));
+}
+
+// Path extension indexes each factor by endpoint identifier. A factor with no
+// joinable rows must yield no paths, in a single pattern and after a chained
+// MATCH, without touching the surviving paths of earlier hops.
+TEST_P(QueryEngineTest, TestPropertyGraphDisconnectedFactorsYieldNoPaths) {
+  if (GetParam() == database_api::DatabaseDialect::POSTGRESQL) {
+    GTEST_SKIP();
+  }
+  for (const char* sql :
+       {"GRAPH test_graph "
+        "MATCH (a)-[e WHERE e.from_id > 100]->(b) "
+        "RETURN a.id AS a_id, b.id AS b_id",
+        "GRAPH test_graph "
+        "MATCH (a)-[]->(b) "
+        "MATCH (b)-[e WHERE e.to_id < 0]->(c) "
+        "RETURN a.id AS a_id, c.id AS c_id",
+        "GRAPH test_graph "
+        "MATCH (a)-[]->(b WHERE b.id > 100)-[]->(c) "
+        "RETURN a.id AS a_id, c.id AS c_id"}) {
+    GOOGLESQL_ASSERT_OK_AND_ASSIGN(
+        QueryResult result,
+        query_engine().ExecuteSql(Query{sql},
+                                  QueryContext{property_graph_schema(),
+                                               property_graph_reader()}));
+    ASSERT_NE(result.rows, nullptr) << sql;
+    EXPECT_THAT(GetAllColumnValues(std::move(result.rows)),
+                IsOkAndHolds(testing::IsEmpty()))
+        << sql;
+  }
+}
+
+TEST_P(QueryEngineTest, TestPropertyGraphChainedMatchWithPatternFilter) {
+  if (GetParam() == database_api::DatabaseDialect::POSTGRESQL) {
+    GTEST_SKIP();
+  }
+  Query query{
+      "GRAPH test_graph "
+      "MATCH (a) "
+      "MATCH (b) WHERE b.id > a.id "
+      "RETURN a.id AS a_id, b.id AS b_id"};
+  GOOGLESQL_ASSERT_OK_AND_ASSIGN(
+      QueryResult result,
+      query_engine().ExecuteSql(query, QueryContext{property_graph_schema(),
+                                                    property_graph_reader()}));
+
+  ASSERT_NE(result.rows, nullptr);
+  EXPECT_THAT(GetAllColumnValues(std::move(result.rows)),
+              IsOkAndHolds(UnorderedElementsAre(
+                  ElementsAre(Int64(1), Int64(2)),
+                  ElementsAre(Int64(1), Int64(4)),
+                  ElementsAre(Int64(2), Int64(4)))));
+}
+
+// The inner-join algebrization of a chained MATCH relies on this: a pattern
+// cannot reference a prior statement's variable except in its outermost WHERE.
+TEST_P(QueryEngineTest, TestPropertyGraphChainedMatchRejectsPriorVariableInElementFilter) {
+  if (GetParam() == database_api::DatabaseDialect::POSTGRESQL) {
+    GTEST_SKIP();
+  }
+  Query query{
+      "GRAPH test_graph "
+      "MATCH (a) "
+      "MATCH (b WHERE b.id > a.id) "
+      "RETURN a.id AS a_id, b.id AS b_id"};
+  EXPECT_THAT(
+      query_engine().ExecuteSql(query, QueryContext{property_graph_schema(),
+                                                    property_graph_reader()}),
+      StatusIs(absl::StatusCode::kInvalidArgument,
+               HasSubstr("can only be referenced in the outermost WHERE "
+                         "clause of MATCH")));
+}
+
 TEST_P(QueryEngineTest, TestSafeToJsonWithGraphNode) {
   if (GetParam() == database_api::DatabaseDialect::POSTGRESQL) {
     GTEST_SKIP();
