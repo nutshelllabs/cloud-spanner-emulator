@@ -97,9 +97,9 @@ Transaction::Transaction(
     const backend::QueryEngine* query_engine,
     const spanner_api::TransactionOptions& options, const Usage& usage,
     std::shared_ptr<Database> database)
-    : transaction_(std::move(backend_transaction)),
+    : database_(std::move(database)),
+      transaction_(std::move(backend_transaction)),
       query_engine_(query_engine),
-      database_(std::move(database)),
       usage_type_(usage),
       type_(TypeFromTransactionOptions(options)),
       options_(options),

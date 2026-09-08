@@ -248,6 +248,13 @@ class Transaction {
   // Returns true if the transaction is in the given state.
   bool HasState(const backend::ReadWriteTransaction::State& state) const;
 
+  // Keeps the database alive for as long as this transaction exists. The
+  // backend transaction's lock handle reports back to the database's lock
+  // manager when it is destroyed, and a multiplexed transaction can outlive
+  // both its session and DropDatabase. Declare this before transaction_ so
+  // the backend transaction is destroyed before the database is released.
+  std::shared_ptr<Database> database_;
+
   // The underlying backend transaction.
   std::variant<std::unique_ptr<backend::ReadWriteTransaction>,
                std::unique_ptr<backend::ReadOnlyTransaction>>
@@ -255,12 +262,6 @@ class Transaction {
 
   // The query engine for executing queries.
   const backend::QueryEngine* query_engine_;
-
-  // Keeps the database alive for as long as this transaction exists. The
-  // backend transaction's lock handle reports back to the database's lock
-  // manager when it is destroyed, and a multiplexed transaction can outlive
-  // both its session and DropDatabase.
-  std::shared_ptr<Database> database_;
 
   // True if this transaction should not be reused. In such a case, proto
   // representation of this transaction will not return transaction id.

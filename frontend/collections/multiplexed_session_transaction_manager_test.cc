@@ -29,6 +29,7 @@
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "backend/actions/manager.h"
+#include "backend/database/database.h"
 #include "backend/locking/manager.h"
 #include "backend/schema/catalog/schema.h"
 #include "backend/schema/catalog/versioned_catalog.h"
@@ -36,6 +37,7 @@
 #include "backend/transaction/options.h"
 #include "backend/transaction/read_write_transaction.h"
 #include "common/clock.h"
+#include "frontend/entities/database.h"
 #include "frontend/entities/transaction.h"
 #include "tests/common/schema_constructor.h"
 
@@ -158,6 +160,38 @@ TEST_F(MultiplexedSessionTransactionManagerTest,
   EXPECT_FALSE(other_txn->IsClosed());
   GOOGLESQL_EXPECT_OK(mux_txn_manager.GetCurrentTransactionOnMultiplexedSession(
       kDatabaseUri2, 2));
+}
+
+TEST_F(MultiplexedSessionTransactionManagerTest,
+       EvictedTransactionRetainsDatabaseThroughDestruction) {
+  GOOGLESQL_ASSERT_OK_AND_ASSIGN(
+      auto backend_database,
+      backend::Database::Create(&clock_, kDatabaseUri, {}));
+  auto database = std::make_shared<Database>(
+      kDatabaseUri, std::move(backend_database), absl::Now());
+  GOOGLESQL_ASSERT_OK_AND_ASSIGN(
+      auto backend_transaction,
+      database->backend()->CreateReadWriteTransaction({}, {}));
+  spanner_api::TransactionOptions options;
+  options.mutable_read_write();
+  auto transaction = std::make_shared<Transaction>(
+      std::move(backend_transaction), database->backend()->query_engine(),
+      options, Transaction::Usage::kMultiUse, database);
+  MultiplexedSessionTransactionManager manager;
+  GOOGLESQL_ASSERT_OK(manager.AddToCurrentTransactions(
+      transaction, kDatabaseUri, transaction->id()));
+
+  std::weak_ptr<Database> weak_database = database;
+  database.reset();
+  manager.ClearTransactionsForDatabase(kDatabaseUri);
+  EXPECT_TRUE(transaction->IsClosed());
+  EXPECT_FALSE(weak_database.expired());
+
+  // An in-flight request can retain the evicted transaction after DropDatabase.
+  // Its lock handle must be destroyed while the database still owns its
+  // manager.
+  transaction.reset();
+  EXPECT_TRUE(weak_database.expired());
 }
 
 TEST_F(MultiplexedSessionTransactionManagerTest, ClearStaleTransactions) {

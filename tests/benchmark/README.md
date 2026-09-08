@@ -83,4 +83,4 @@ The producer target also runs a separate contended-write test: four writers
 increment one counter 50 times each using the client's transaction retries.
 It verifies that retries occurred and that all 200 increments were committed
 exactly once. `GRAPH_RETRIES` reports callback attempts and committed writes.
-This tests retry correctness; it does not measure the full Oak workflow.
+This tests retry correctness; it does not measure the full application workflow.
