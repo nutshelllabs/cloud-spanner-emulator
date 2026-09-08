@@ -98,7 +98,7 @@ RUN find third_party/spanner_pg -name "nodes.h" -exec sed -i 's/enum NodeTag : i
 # build the rest of the targets.
 ENV EXTRA_BAZEL_ARGS="--tool_java_runtime_version=local_jdk"
 RUN --mount=type=cache,id=bazel-amd64,target=/root/.cache/bazel        \
-    bazel build -c opt \
+    bazel build --jobs=8 -c opt \
     //binaries:emulator_main \
     //binaries:gateway_main && \
     mkdir out && cp bazel-bin/binaries/emulator_main out/emulator_main      && \
