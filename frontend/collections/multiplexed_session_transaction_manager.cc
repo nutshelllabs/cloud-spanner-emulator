@@ -97,6 +97,21 @@ void MultiplexedSessionTransactionManager::ClearOldTransactionsLocked() {
   }
 }
 
+void MultiplexedSessionTransactionManager::ClearTransactionsForDatabase(
+    const std::string& database_uri) {
+  absl::MutexLock lock(mu_);
+  std::vector<std::pair<std::string, backend::TransactionID>>
+      transactions_to_remove;
+  for (auto const& [key, txn] : current_transactions_) {
+    if (key.first == database_uri) {
+      transactions_to_remove.push_back(key);
+    }
+  }
+  for (auto const& key : transactions_to_remove) {
+    RemoveFromCurrentTransactionsLocked(key.first, key.second);
+  }
+}
+
 void MultiplexedSessionTransactionManager::ClearOldTransactions() {
   absl::MutexLock lock(mu_);
   ClearOldTransactionsLocked();

@@ -157,6 +157,7 @@ googlesql::EvaluatorOptions CommonEvaluatorOptions(
   options.return_all_insert_rows_insert_ignore_dml =
       return_all_insert_rows_insert_ignore_dml;
   options.max_value_byte_size = limits::kMaxValueSizeBytes;
+  options.max_intermediate_byte_size = config::max_intermediate_byte_size();
   return options;
 }
 

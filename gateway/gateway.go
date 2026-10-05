@@ -55,6 +55,7 @@ type Options struct {
 	OverrideMaxDatabasesPerInstance                int
 	OverrideChangeStreamPartitionTokenAliveSeconds int
 	RemoteFunctionsHostPort                        string
+	MaxIntermediateByteSize                        int64
 }
 
 // Gateway implements the emulator gateway server.
@@ -98,6 +99,8 @@ func (gw *Gateway) Run() {
 	emulatorArgs = append(emulatorArgs,
 		fmt.Sprintf("--override_change_stream_partition_token_alive_seconds=%d",
 			gw.opts.OverrideChangeStreamPartitionTokenAliveSeconds))
+	emulatorArgs = append(emulatorArgs,
+		fmt.Sprintf("--max_intermediate_byte_size=%d", gw.opts.MaxIntermediateByteSize))
 
 	cmd := exec.Command(gw.opts.FrontendBinary, emulatorArgs...)
 

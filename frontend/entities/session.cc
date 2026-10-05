@@ -219,7 +219,7 @@ absl::StatusOr<std::unique_ptr<Transaction>> Session::CreateReadOnly(
       database_->backend()->CreateReadOnlyTransaction(read_only_options));
   return std::make_unique<Transaction>(std::move(read_only_transaction),
                                        database_->backend()->query_engine(),
-                                       options, usage);
+                                       options, usage, database_);
 }
 
 absl::StatusOr<std::unique_ptr<Transaction>> Session::CreateReadWrite(
@@ -238,7 +238,7 @@ absl::StatusOr<std::unique_ptr<Transaction>> Session::CreateReadWrite(
 
   return std::make_unique<Transaction>(std::move(read_write_transaction),
                                        database_->backend()->query_engine(),
-                                       options, usage);
+                                       options, usage, database_);
 }
 
 absl::StatusOr<std::shared_ptr<Transaction>> Session::FindAndUseTransaction(

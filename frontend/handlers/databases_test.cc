@@ -452,6 +452,46 @@ TEST_F(DatabaseApiTest, GetDatabaseWithPostgresDialect) {
             database_api::DatabaseDialect::POSTGRESQL);
 }
 
+// A multiplexed transaction lives in a server-wide cache, not in its session.
+// Dropping its database used to leave it there, referring to freed backend
+// state, which aborted the emulator when the transaction was later destroyed,
+// and a database recreated under the same URI could be handed the stale
+// transaction because backend transaction ids restart from one. Both rounds
+// must work, and the fixture's teardown then drops the last database with a
+// live multiplexed transaction and shuts the server down.
+TEST_F(DatabaseApiTest, DropDatabaseWithOpenMultiplexedTransaction) {
+  for (int round = 0; round < 2; ++round) {
+    GOOGLESQL_ASSERT_OK(CreateTestDatabase());
+    GOOGLESQL_ASSERT_OK_AND_ASSIGN(std::string session_uri,
+                         CreateTestSession(/*multiplexed=*/true));
+
+    spanner_api::BeginTransactionRequest begin_request = PARSE_TEXT_PROTO(R"pb(
+      options { read_write {} }
+    )pb");
+    begin_request.set_session(session_uri);
+    spanner_api::Transaction transaction;
+    GOOGLESQL_ASSERT_OK(BeginTransaction(begin_request, &transaction));
+
+    // Use the transaction so it holds a lock in this database's lock manager.
+    spanner_api::ReadRequest read_request = PARSE_TEXT_PROTO(R"pb(
+      table: "test_table"
+      columns: "int64_col"
+      key_set { all: true }
+    )pb");
+    read_request.set_session(session_uri);
+    read_request.mutable_transaction()->set_id(transaction.id());
+    spanner_api::ResultSet result_set;
+    GOOGLESQL_ASSERT_OK(Read(read_request, &result_set));
+
+    if (round == 0) {
+      GOOGLESQL_ASSERT_OK(DropDatabase(test_database_uri_));
+      // The dropped database's transaction is gone with it.
+      EXPECT_THAT(Read(read_request, &result_set),
+                  StatusIs(absl::StatusCode::kNotFound));
+    }
+  }
+}
+
 TEST_F(DatabaseApiTest, DropDatabaseInvalidInstance) {
   auto instance_uri =
       MakeInstanceUri(test_project_name_, "invalid-instance-name");
