@@ -306,6 +306,11 @@ absl::Status QueryValidator::CheckSpannerHintName(
       {googlesql::RESOLVED_TABLE_SCAN,
        {kHintForceIndex, kHintTableScanGroupByScanOptimization,
         kHintIndexStrategy, kScanMethod}},
+      // GQL element hints, e.g. (n:Label @{FORCE_INDEX=Idx}) or
+      // -[@{FORCE_INDEX=Idx} e:Label]->. The reference evaluator does not use
+      // indexes to evaluate graph patterns, so the hint is only validated.
+      {googlesql::RESOLVED_GRAPH_NODE_SCAN, {kHintForceIndex}},
+      {googlesql::RESOLVED_GRAPH_EDGE_SCAN, {kHintForceIndex}},
       {googlesql::RESOLVED_JOIN_SCAN,
        {kHintJoinTypeDeprecated, kHintJoinMethod, kHashJoinBuildSide,
         kHintJoinForceOrder, kHashJoinExecution}},

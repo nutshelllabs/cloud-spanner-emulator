@@ -2850,6 +2850,51 @@ TEST_P(QueryEngineTest, TestSafeToJsonWithGraphEdge) {
                   ElementsAre(String("4")), ElementsAre(String("1")))));
 }
 
+TEST_P(QueryEngineTest, TestPropertyGraphElementForceIndexHint) {
+  if (GetParam() == database_api::DatabaseDialect::POSTGRESQL) {
+    GTEST_SKIP();
+  }
+  // FORCE_INDEX is accepted as an element hint on node and edge patterns,
+  // alongside traversal and MATCH join hints.
+  Query query{
+      "GRAPH test_graph "
+      "MATCH @{JOIN_METHOD=HASH_JOIN} "
+      "(a @{FORCE_INDEX=_BASE_TABLE}) "
+      "@{JOIN_METHOD=HASH_JOIN} "
+      "-[@{FORCE_INDEX=edge_table_by_to_id} e WHERE e.to_id > 0]-> "
+      "@{JOIN_METHOD=APPLY_JOIN} "
+      "(b) "
+      "RETURN e.from_id AS from_id, e.to_id AS to_id"};
+  GOOGLESQL_ASSERT_OK_AND_ASSIGN(
+      QueryResult result,
+      query_engine().ExecuteSql(query, QueryContext{property_graph_schema(),
+                                                    property_graph_reader()}));
+
+  ASSERT_NE(result.rows, nullptr);
+  EXPECT_THAT(GetAllColumnValues(std::move(result.rows)),
+              IsOkAndHolds(UnorderedElementsAre(
+                  ElementsAre(Int64(1), Int64(2)),
+                  ElementsAre(Int64(2), Int64(4)),
+                  ElementsAre(Int64(4), Int64(1)),
+                  ElementsAre(Int64(1), Int64(4)))));
+}
+
+TEST_P(QueryEngineTest, TestPropertyGraphElementForceIndexHintUnknownIndex) {
+  if (GetParam() == database_api::DatabaseDialect::POSTGRESQL) {
+    GTEST_SKIP();
+  }
+  Query query{
+      "GRAPH test_graph "
+      "MATCH (a)-[@{FORCE_INDEX=no_such_index} e]->(b) "
+      "RETURN e.from_id AS from_id"};
+  EXPECT_THAT(
+      query_engine().ExecuteSql(
+          query, QueryContext{property_graph_schema(), property_graph_reader()}),
+      StatusIs(absl::StatusCode::kInvalidArgument,
+               HasSubstr("does not have a secondary index called "
+                         "no_such_index")));
+}
+
 TEST_P(QueryEngineTest, TestPropertyGraphWithDistinct) {
   if (GetParam() == database_api::DatabaseDialect::POSTGRESQL) {
     GTEST_SKIP();

@@ -345,6 +345,10 @@ std::unique_ptr<const backend::Schema> CreateSchemaWithOnePropertyGraph(
           to_id INT64 NOT NULL,
         ) PRIMARY KEY(from_id, to_id)
       )";
+  std::string edge_index =
+      R"(
+        CREATE INDEX edge_table_by_to_id ON edge_table(to_id)
+      )";
   std::string property_graph =
       R"(
           CREATE PROPERTY GRAPH test_graph
@@ -362,6 +366,7 @@ std::unique_ptr<const backend::Schema> CreateSchemaWithOnePropertyGraph(
       {
           node_table,
           edge_table,
+          edge_index,
           property_graph,
       },
       type_factory, "" /*proto_descriptor_bytes*/
