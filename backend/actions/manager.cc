@@ -149,8 +149,9 @@ void ActionRegistry::BuildActionRegistry() {
       if (index->is_search_index()) {
         continue;
       }
-      table_effectors_[table].emplace_back(
-          std::make_unique<IndexEffector>(index));
+      table_effectors_[table].emplace_back(std::make_unique<IndexEffector>(
+          index, MakeGoogleSqlAnalyzerOptions(schema_->default_time_zone()),
+          &catalog_));
 
       // Index uniqueness checks.
       if (index->is_unique()) {

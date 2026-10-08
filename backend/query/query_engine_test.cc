@@ -2810,6 +2810,95 @@ TEST_P(QueryEngineTest, TestPropertyGraphChainedMatchRejectsPriorVariableInEleme
                          "clause of MATCH")));
 }
 
+// An element pattern may force an index of its element table, as Iris does
+// on edge patterns. The hint is validated against that table, not rejected
+// as unsupported on a graph scan.
+TEST_P(QueryEngineTest, TestPropertyGraphForceIndexOnEdgePattern) {
+  if (GetParam() == database_api::DatabaseDialect::POSTGRESQL) {
+    GTEST_SKIP();
+  }
+  GOOGLESQL_ASSERT_OK_AND_ASSIGN(
+      std::unique_ptr<const Schema> indexed_schema,
+      test::CreateSchemaFromDDL(
+          {
+              R"(CREATE TABLE node_table (
+                   id INT64 NOT NULL,
+                 ) PRIMARY KEY (id))",
+              R"(CREATE TABLE edge_table (
+                   from_id INT64 NOT NULL,
+                   to_id INT64 NOT NULL,
+                 ) PRIMARY KEY(from_id, to_id))",
+              "CREATE INDEX edge_by_to ON edge_table(to_id)",
+              R"(CREATE PROPERTY GRAPH test_graph
+                   NODE TABLES(
+                     node_table KEY(id)
+                       LABEL Test PROPERTIES(id))
+                   EDGE TABLES(
+                     edge_table
+                       KEY(from_id, to_id)
+                       SOURCE KEY(from_id) REFERENCES node_table(id)
+                       DESTINATION KEY(to_id) REFERENCES node_table(id)
+                       DEFAULT LABEL PROPERTIES ALL COLUMNS))",
+          },
+          &type_factory_));
+
+  for (const char* index : {"edge_by_to", "_base_table"}) {
+    SCOPED_TRACE(index);
+    Query query{absl::StrCat(
+        "GRAPH test_graph "
+        "MATCH (a)-[@{FORCE_INDEX=",
+        index,
+        "} e WHERE e.to_id > 1]->(b) "
+        "RETURN a.id AS a_id, b.id AS b_id")};
+    GOOGLESQL_ASSERT_OK_AND_ASSIGN(
+        QueryResult result,
+        query_engine().ExecuteSql(
+            query, QueryContext{indexed_schema.get(), property_graph_reader()}));
+    ASSERT_NE(result.rows, nullptr);
+    EXPECT_THAT(GetAllColumnValues(std::move(result.rows)),
+                IsOkAndHolds(UnorderedElementsAre(
+                    ElementsAre(Int64(1), Int64(2)),
+                    ElementsAre(Int64(2), Int64(4)),
+                    ElementsAre(Int64(1), Int64(4)))));
+  }
+
+  // The index must exist on the pattern's element table.
+  Query missing{
+      "GRAPH test_graph "
+      "MATCH (a)-[@{FORCE_INDEX=nope} e]->(b) "
+      "RETURN a.id AS a_id"};
+  EXPECT_THAT(query_engine().ExecuteSql(
+                  missing, QueryContext{indexed_schema.get(),
+                                        property_graph_reader()}),
+              StatusIs(absl::StatusCode::kInvalidArgument,
+                       testing::HasSubstr("nope")));
+}
+
+TEST_P(QueryEngineTest, TestPropertyGraphAcceptsJoinHintsInPattern) {
+  if (GetParam() == database_api::DatabaseDialect::POSTGRESQL) {
+    GTEST_SKIP();
+  }
+  Query query{
+      "GRAPH test_graph "
+      "MATCH @{JOIN_METHOD=APPLY_JOIN} (a) "
+      "@{JOIN_METHOD=APPLY_JOIN} -[]-> @{JOIN_METHOD=APPLY_JOIN} (b) "
+      "MATCH @{JOIN_METHOD=HASH_JOIN} (b) -[]-> (c) "
+      "RETURN a.id AS a_id, b.id AS b_id, c.id AS c_id"};
+  GOOGLESQL_ASSERT_OK_AND_ASSIGN(
+      QueryResult result,
+      query_engine().ExecuteSql(query, QueryContext{property_graph_schema(),
+                                                    property_graph_reader()}));
+
+  ASSERT_NE(result.rows, nullptr);
+  EXPECT_THAT(GetAllColumnValues(std::move(result.rows)),
+              IsOkAndHolds(UnorderedElementsAre(
+                  ElementsAre(Int64(1), Int64(2), Int64(4)),
+                  ElementsAre(Int64(2), Int64(4), Int64(1)),
+                  ElementsAre(Int64(4), Int64(1), Int64(2)),
+                  ElementsAre(Int64(4), Int64(1), Int64(4)),
+                  ElementsAre(Int64(1), Int64(4), Int64(1)))));
+}
+
 TEST_P(QueryEngineTest, TestSafeToJsonWithGraphNode) {
   if (GetParam() == database_api::DatabaseDialect::POSTGRESQL) {
     GTEST_SKIP();

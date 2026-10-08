@@ -458,6 +458,11 @@ class SchemaUpdaterImpl {
       const Table* indexed_table, const std::string& source_column_name,
       const Table* index_data_table, bool is_null_filtered);
 
+  absl::StatusOr<const Column*> CreateIndexExpressionColumn(
+      absl::string_view index_name, absl::string_view expression,
+      int key_position, const Table* indexed_table,
+      const Table* index_data_table, bool is_null_filtered);
+
   absl::Status AddIndexColumnsByName(const std::string& column_name,
                                      const Table* indexed_table,
                                      bool is_null_filtered,
@@ -3319,6 +3324,62 @@ absl::StatusOr<const Column*> SchemaUpdaterImpl::CreateIndexDataTableColumn(
   return column;
 }
 
+absl::StatusOr<const Column*> SchemaUpdaterImpl::CreateIndexExpressionColumn(
+    absl::string_view index_name, absl::string_view expression,
+    int key_position, const Table* indexed_table, const Table* index_data_table,
+    bool is_null_filtered) {
+  std::vector<googlesql::SimpleTable::NameAndType> name_and_types;
+  GOOGLESQL_RETURN_IF_ERROR(InitColumnNameAndTypesFromTable(
+      indexed_table, /*ddl_create_table=*/nullptr, &name_and_types));
+
+  absl::flat_hash_set<std::string> dependent_column_names;
+  absl::flat_hash_set<const SchemaNode*> udf_dependencies;
+  const googlesql::Type* type = nullptr;
+  GOOGLESQL_RETURN_IF_ERROR(AnalyzeColumnExpression(
+      expression, /*target_type=*/nullptr, indexed_table, latest_schema_,
+      type_factory_, name_and_types, "index key expressions",
+      &dependent_column_names,
+      /*dependent_sequences=*/nullptr,
+      /*allow_volatile_expression=*/false, &udf_dependencies,
+      /*is_pending_commit_timestamp=*/nullptr, &type));
+  if (!udf_dependencies.empty()) {
+    return error::IndexExpressionRefsUdf(index_name, expression);
+  }
+  if (dependent_column_names.empty()) {
+    return error::IndexExpressionRefsNoColumn(index_name, expression);
+  }
+  if (!IsSupportedKeyColumnType(type, /*is_vector_index=*/false)) {
+    return error::IndexRefsUnsupportedColumn(index_name, ToString(type));
+  }
+
+  // The column name only has to be unique within the index data table, but
+  // stays clear of the indexed table's names so that stored and key columns
+  // added later cannot collide with it.
+  std::string name = absl::StrCat("expr", key_position);
+  while (index_data_table->FindColumn(name) != nullptr ||
+         indexed_table->FindColumn(name) != nullptr) {
+    absl::StrAppend(&name, "_");
+  }
+
+  Column::Builder builder;
+  builder.set_name(name)
+      .set_id(column_id_generator_->NextId(
+          absl::StrCat(index_data_table->Name(), ".", name)))
+      .set_type(type)
+      .set_table(index_data_table)
+      .set_expression(std::string(expression))
+      .set_stored(true)
+      .set_nullable(!is_null_filtered);
+  for (const Column* column : indexed_table->columns()) {
+    if (dependent_column_names.contains(column->Name())) {
+      builder.add_dependent_column(column);
+    }
+  }
+  const Column* column = builder.get();
+  GOOGLESQL_RETURN_IF_ERROR(AddNode(builder.build()));
+  return column;
+}
+
 absl::Status SchemaUpdaterImpl::AddIndexColumnsByName(
     const std::string& column_name, const Table* indexed_table,
     bool is_null_filtered, std::vector<const Column*>& columns,
@@ -3591,6 +3652,20 @@ SchemaUpdaterImpl::CreateIndexDataTable(
     int num_declared_keys = 0;
     for (const ddl::KeyPartClause& ddl_key_part : index_pk) {
       ++num_declared_keys;
+      if (ddl_key_part.has_expression()) {
+        GOOGLESQL_ASSIGN_OR_RETURN(
+            const Column* column,
+            CreateIndexExpressionColumn(index_name, ddl_key_part.expression(),
+                                        num_declared_keys, indexed_table,
+                                        builder.get(),
+                                        index->is_null_filtered()));
+        builder.add_column(column);
+        ddl::KeyPartClause data_table_key_part = ddl_key_part;
+        data_table_key_part.clear_expression();
+        data_table_key_part.set_key_name(column->Name());
+        data_table_pk.push_back(data_table_key_part);
+        continue;
+      }
       data_table_pk.push_back(ddl_key_part);
 
       const std::string& column_name = ddl_key_part.key_name();
@@ -4263,6 +4338,11 @@ absl::StatusOr<const Index*> SchemaUpdaterImpl::CreateIndexHelper(
   if (is_vector_index) {
     builder.set_vector_index_type(is_vector_index);
     GOOGLESQL_RETURN_IF_ERROR(SetVectorIndexOptions(index_name, *set_options, &builder));
+  }
+  if (absl::c_any_of(table_pk, [](const ddl::KeyPartClause& key_part) {
+        return key_part.has_expression();
+      })) {
+    builder.set_expression_index_type(true);
   }
 
   GOOGLESQL_RETURN_IF_ERROR(AlterNode<Table>(

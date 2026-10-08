@@ -1699,6 +1699,65 @@ TEST(ParseCreateIndex, CanParseCreateIndexNotNullFiltered) {
                   )pb")));
 }
 
+TEST(ParseCreateIndex, CanParseCreateIndexWithExpressionKeys) {
+  EXPECT_THAT(
+      ParseDDLStatement(
+          R"sql(
+            CREATE NULL_FILTERED INDEX ProductsByTransmission
+                ON Products(ScopeId, Type, JSON_VALUE(ProtoData, '$.7.10'),
+                            LOWER(Name) DESC, (Price + Tax) * 2)
+                STORING (SemanticVersion)
+          )sql"),
+      IsOkAndHolds(test::EqualsProto(
+          R"pb(
+            create_index {
+              index_name: "ProductsByTransmission"
+              index_base_name: "Products"
+              key { key_name: "ScopeId" }
+              key { key_name: "Type" }
+              key { expression: "JSON_VALUE(ProtoData, '$.7.10')" }
+              key { expression: "LOWER(Name)" order: DESC }
+              key { expression: "(Price + Tax) * 2" }
+              null_filtered: true
+              stored_column_definition { name: "SemanticVersion" }
+            }
+          )pb")));
+}
+
+TEST(ParseCreateIndex, CanParseCreateIndexWithParenthesizedCaseExpression) {
+  EXPECT_THAT(
+      ParseDDLStatement(
+          R"sql(
+            CREATE NULL_FILTERED INDEX pfi.iris_pfi_transmission_id_index
+                ON pfi.product (scope_id, type, (CASE
+                    WHEN type = 'type.googleapis.com/nutshell.iris.proto.pfi.ustax.product.IrsFormSubmission'
+                    THEN JSON_VALUE(proto_data, '$.7.10')
+                    ELSE NULL
+                END))
+          )sql"),
+      IsOkAndHolds(test::EqualsProto(
+          R"pb(
+            create_index {
+              index_name: "pfi.iris_pfi_transmission_id_index"
+              index_base_name: "pfi.product"
+              key { key_name: "scope_id" }
+              key { key_name: "type" }
+              key {
+                expression: "(CASE\n                    WHEN type = 'type.googleapis.com/nutshell.iris.proto.pfi.ustax.product.IrsFormSubmission'\n                    THEN JSON_VALUE(proto_data, '$.7.10')\n                    ELSE NULL\n                END)"
+              }
+              null_filtered: true
+            }
+          )pb")));
+}
+
+TEST(ParseCreateIndex, CannotParseCreateIndexWithUnbalancedExpression) {
+  EXPECT_THAT(ParseDDLStatement(
+                  R"sql(
+                    CREATE INDEX Idx ON Products(LOWER(Name)
+                  )sql"),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+}
+
 TEST(ParseCreateIndex, CanParseCreateUniqueIndex) {
   EXPECT_THAT(ParseDDLStatement(
                   R"sql(

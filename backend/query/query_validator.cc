@@ -200,58 +200,80 @@ absl::Status QueryValidator::ValidateHints(
   // processing other hints.
   GOOGLESQL_RETURN_IF_ERROR(MaybeSetIgnoreUnknownHints(node));
 
+  // An edge pattern's own hints and the hints on either side of it are
+  // separate sets and may repeat a name.
+  if (node->node_kind() == googlesql::RESOLVED_GRAPH_EDGE_SCAN) {
+    const auto* edge = node->GetAs<googlesql::ResolvedGraphEdgeScan>();
+    for (const auto* hint_list :
+         {&edge->hint_list(), &edge->lhs_hint_list(), &edge->rhs_hint_list()}) {
+      std::vector<const googlesql::ResolvedOption*> options;
+      for (const auto& hint : *hint_list) {
+        options.push_back(hint.get());
+      }
+      GOOGLESQL_RETURN_IF_ERROR(ValidateHintOptions(options, node->node_kind()));
+    }
+    return absl::OkStatus();
+  }
+
   std::vector<const googlesql::ResolvedNode*> child_nodes;
   node->GetChildNodes(&child_nodes);
-  // Process the hints for each node, using maps to keep track of
-  // the hints for each node.
-  absl::flat_hash_map<absl::string_view, googlesql::Value> hint_map;
-  absl::flat_hash_map<absl::string_view, googlesql::Value> emulator_hint_map;
+  std::vector<const googlesql::ResolvedOption*> options;
   for (const googlesql::ResolvedNode* child_node : child_nodes) {
     if (child_node->node_kind() == googlesql::RESOLVED_OPTION) {
-      const googlesql::ResolvedOption* hint =
-          child_node->GetAs<googlesql::ResolvedOption>();
-      if (absl::EqualsIgnoreCase(hint->qualifier(),
-                                 kSpannerQueryEngineHintPrefix) ||
-          hint->qualifier().empty()) {
-        absl::Status status =
-            CheckSpannerHintName(hint->name(), node->node_kind());
-        if (!status.ok()) {
-          if (ignore_unknown_hints_) {
-            hint->value()->MarkFieldsAccessed();
-            continue;
-          }
-          return status;
+      options.push_back(child_node->GetAs<googlesql::ResolvedOption>());
+    }
+  }
+  return ValidateHintOptions(options, node->node_kind());
+}
+
+absl::Status QueryValidator::ValidateHintOptions(
+    absl::Span<const googlesql::ResolvedOption* const> options,
+    const googlesql::ResolvedNodeKind node_kind) {
+  // Process the hints for the node, using maps to keep track of them.
+  absl::flat_hash_map<absl::string_view, googlesql::Value> hint_map;
+  absl::flat_hash_map<absl::string_view, googlesql::Value> emulator_hint_map;
+  for (const googlesql::ResolvedOption* hint : options) {
+    if (absl::EqualsIgnoreCase(hint->qualifier(),
+                               kSpannerQueryEngineHintPrefix) ||
+        hint->qualifier().empty()) {
+      absl::Status status =
+          CheckSpannerHintName(hint->name(), node_kind);
+      if (!status.ok()) {
+        if (ignore_unknown_hints_) {
+          hint->value()->MarkFieldsAccessed();
+          continue;
         }
-        GOOGLESQL_RETURN_IF_ERROR(CollectHintsForNode(hint, &hint_map));
-        // These hints are either implemented by emulator-side validation or are
-        // accepted as no-ops because the reference evaluator does not implement
-        // Spanner query planning hints.
-        hint->value()->MarkFieldsAccessed();
-      } else if (absl::EqualsIgnoreCase(hint->qualifier(),
-                                        kEmulatorQueryEngineHintPrefix)) {
-        absl::Status status =
-            CheckEmulatorHintName(hint->name(), node->node_kind());
-        if (!status.ok()) {
-          if (ignore_unknown_hints_) {
-            hint->value()->MarkFieldsAccessed();
-            continue;
-          }
-          return status;
-        }
-        GOOGLESQL_RETURN_IF_ERROR(CollectHintsForNode(hint, &emulator_hint_map));
-        hint->value()->MarkFieldsAccessed();
-      } else {
-        // Ignore hints intended for other engines. Mark the value used so an
-        // 'Unimplemented' error is not raised.
-        hint->value()->MarkFieldsAccessed();
-        continue;
+        return status;
       }
+      GOOGLESQL_RETURN_IF_ERROR(CollectHintsForNode(hint, &hint_map));
+      // These hints are either implemented by emulator-side validation or are
+      // accepted as no-ops because the reference evaluator does not implement
+      // Spanner query planning hints.
+      hint->value()->MarkFieldsAccessed();
+    } else if (absl::EqualsIgnoreCase(hint->qualifier(),
+                                      kEmulatorQueryEngineHintPrefix)) {
+      absl::Status status =
+          CheckEmulatorHintName(hint->name(), node_kind);
+      if (!status.ok()) {
+        if (ignore_unknown_hints_) {
+          hint->value()->MarkFieldsAccessed();
+          continue;
+        }
+        return status;
+      }
+      GOOGLESQL_RETURN_IF_ERROR(CollectHintsForNode(hint, &emulator_hint_map));
+      hint->value()->MarkFieldsAccessed();
+    } else {
+      // Ignore hints intended for other engines. Mark the value used so an
+      // 'Unimplemented' error is not raised.
+      hint->value()->MarkFieldsAccessed();
+      continue;
     }
   }
 
   for (const auto& [hint_name, hint_value] : hint_map) {
     GOOGLESQL_RETURN_IF_ERROR(
-        CheckHintValue(hint_name, hint_value, node->node_kind(), hint_map));
+        CheckHintValue(hint_name, hint_value, node_kind, hint_map));
   }
 
   GOOGLESQL_RETURN_IF_ERROR(ExtractSpannerOptionsForNode(hint_map));
@@ -343,6 +365,23 @@ absl::Status QueryValidator::CheckSpannerHintName(
         kHintJoinBatch, kHintJoinForceOrder, kHashJoinExecution}},
       {googlesql::RESOLVED_SET_OPERATION_SCAN,
        {kHintJoinMethod, kHintJoinForceOrder}},
+      // Graph pattern hints: on MATCH, on a path, on an element, and on
+      // either side of an edge. An element pattern may also force an index
+      // of its element table.
+      {googlesql::RESOLVED_GRAPH_SCAN,
+       {kHintJoinTypeDeprecated, kHintJoinMethod, kHashJoinBuildSide,
+        kHintJoinBatch, kHintJoinForceOrder, kHashJoinExecution}},
+      {googlesql::RESOLVED_GRAPH_PATH_SCAN,
+       {kHintJoinTypeDeprecated, kHintJoinMethod, kHashJoinBuildSide,
+        kHintJoinBatch, kHintJoinForceOrder, kHashJoinExecution}},
+      {googlesql::RESOLVED_GRAPH_NODE_SCAN,
+       {kHintJoinTypeDeprecated, kHintJoinMethod, kHashJoinBuildSide,
+        kHintJoinBatch, kHintJoinForceOrder, kHashJoinExecution,
+        kHintForceIndex, kHintIndexStrategy}},
+      {googlesql::RESOLVED_GRAPH_EDGE_SCAN,
+       {kHintJoinTypeDeprecated, kHintJoinMethod, kHashJoinBuildSide,
+        kHintJoinBatch, kHintJoinForceOrder, kHashJoinExecution,
+        kHintForceIndex, kHintIndexStrategy}},
       {googlesql::RESOLVED_FUNCTION_CALL, {kHintDisableInline}}};
 
   const auto& iter = supported_hints->find(node_kind);

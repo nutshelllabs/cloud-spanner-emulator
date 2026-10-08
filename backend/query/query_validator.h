@@ -130,6 +130,9 @@ class QueryValidator : public googlesql::ResolvedASTVisitor {
  private:
   // Validates the child hint nodes of `node`.
   absl::Status ValidateHints(const googlesql::ResolvedNode* node);
+  absl::Status ValidateHintOptions(
+      absl::Span<const googlesql::ResolvedOption* const> options,
+      googlesql::ResolvedNodeKind node_kind);
 
   // Sets `ignore_unknown_hints_` if `spanner_emulator.ignore_unknown_hints` is
   // set to true in the query.

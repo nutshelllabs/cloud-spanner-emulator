@@ -125,6 +125,14 @@ class Index : public SchemaNode {
     return index_type_ == IndexType::kVectorIndex;
   }
 
+  // Returns true if at least one key of this index is a SQL expression over
+  // the indexed table's columns rather than a column reference. The
+  // expression columns live in the index data table, carry the expression and
+  // have no source column.
+  bool is_expression_index() const {
+    return index_type_ == IndexType::kExpressionIndex;
+  }
+
   // Returns the list of partition by column defined in the search index.
   absl::Span<const Column* const> partition_by() const { return partition_by_; }
 

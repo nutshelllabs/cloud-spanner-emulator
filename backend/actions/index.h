@@ -19,6 +19,10 @@
 
 #include "backend/actions/action.h"
 #include "backend/actions/ops.h"
+#include "googlesql/public/analyzer_options.h"
+#include "googlesql/public/catalog.h"
+#include "backend/common/indexing.h"
+#include "backend/common/rows.h"
 #include "backend/schema/catalog/table.h"
 #include "absl/status/status.h"
 
@@ -42,7 +46,14 @@ namespace backend {
 // UNIQUE index checks are handled by UniqueIndexVerifier.
 class IndexEffector : public Effector {
  public:
+  // Suitable for indexes whose keys are all column references.
   explicit IndexEffector(const Index* index);
+
+  // `analyzer_options` and `catalog` prepare the key expressions of an
+  // expression index; see IndexExpressionEvaluator.
+  IndexEffector(const Index* index,
+                const googlesql::AnalyzerOptions& analyzer_options,
+                googlesql::Catalog* catalog);
 
  private:
   absl::Status Effect(const ActionContext* ctx,
@@ -52,10 +63,15 @@ class IndexEffector : public Effector {
   absl::Status Effect(const ActionContext* ctx,
                       const DeleteOp& op) const override;
 
+  absl::Status EvaluateKeyExpressions(Row* base_row) const;
+
   const Index* index_;
 
   // List of indexed table columns relevant to the index.
   std::vector<const Column*> base_columns_;
+
+  // Null unless the index has expression keys.
+  std::unique_ptr<IndexExpressionEvaluator> expression_evaluator_;
 };
 
 }  // namespace backend

@@ -34,11 +34,15 @@
 #include "backend/datamodel/key.h"
 #include "backend/datamodel/key_range.h"
 #include "backend/datamodel/value.h"
+#include "backend/query/analyzer_options.h"
+#include "backend/query/catalog.h"
+#include "backend/query/function_catalog.h"
 #include "backend/schema/catalog/column.h"
 #include "backend/schema/catalog/index.h"
 #include "backend/schema/updater/schema_validation_context.h"
 #include "backend/storage/in_memory_storage.h"
 #include "backend/storage/iterator.h"
+#include "common/constants.h"
 #include "common/errors.h"
 #include "common/limits.h"
 #include "googlesql/base/ret_check.h"
@@ -106,6 +110,22 @@ absl::Status BackfillIndex(const Index* index,
   std::vector<ColumnID> base_column_ids = GetColumnIDs(base_columns);
   std::vector<ColumnID> index_column_ids = GetColumnIDs(index_columns);
 
+  std::unique_ptr<IndexExpressionEvaluator> expression_evaluator;
+  if (index->is_expression_index()) {
+    const Schema* schema = context->validated_new_schema();
+    FunctionCatalog function_catalog(
+        context->type_factory(),
+        /*catalog_name=*/kCloudSpannerEmulatorFunctionCatalogName,
+        /*latest_schema=*/schema);
+    googlesql::AnalyzerOptions analyzer_options =
+        MakeGoogleSqlAnalyzerOptions(schema->default_time_zone());
+    Catalog catalog(schema, &function_catalog, context->type_factory(),
+                    analyzer_options);
+    GOOGLESQL_ASSIGN_OR_RETURN(
+        expression_evaluator,
+        IndexExpressionEvaluator::Create(index, analyzer_options, &catalog));
+  }
+
   // TODO: Use actions framework for index backfills.
   std::unique_ptr<StorageIterator> itr;
   GOOGLESQL_RETURN_IF_ERROR(context->storage()->Read(
@@ -128,6 +148,13 @@ absl::Status BackfillIndex(const Index* index,
 
     // Compute the index key and column values.
     Row base_row = MakeRow(base_columns, row_values);
+    if (expression_evaluator != nullptr) {
+      absl::Status status = expression_evaluator->Evaluate(&base_row);
+      if (!status.ok()) {
+        return absl::Status(absl::StatusCode::kFailedPrecondition,
+                            status.message());
+      }
+    }
     // Backfill should return failed precondition error for invalid index keys.
     GOOGLESQL_ASSIGN_OR_RETURN(Key index_data_table_key, ComputeIndexKey(base_row, index),
                      _.SetErrorCode(absl::StatusCode::kFailedPrecondition));

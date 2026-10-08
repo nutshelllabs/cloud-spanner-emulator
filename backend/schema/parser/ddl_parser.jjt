@@ -775,7 +775,40 @@ void index_keys() :
 void index_key_part() :
 {}
 {
-  key_part()
+    LOOKAHEAD(path() ( <ASC> | <DESC> | "," | ")" )) key_part()
+  | key_expression_part()
+}
+
+void key_expression_part() :
+{}
+{
+  key_expression()
+  [   <ASC> #asc
+    | <DESC> #desc
+  ]
+}
+
+// A SQL expression used as an index key. Stops at a top-level comma, closing
+// parenthesis, ASC or DESC; parenthesized sub-expressions may contain any of
+// these.
+void key_expression() :
+{}
+{
+  ( LOOKAHEAD(1, {getToken(1)->kind != ASC && getToken(1)->kind != DESC})
+    key_expression_token() )+
+}
+
+void key_expression_token() #void :
+{}
+{
+    <INTEGER_LITERAL>
+  | any_string_literal()
+  | any_bytes_literal()
+  | identifier()
+  | any_reserved_word()
+  | googlesql_operator()
+  | "[" | "]" | ":" | "@" | "{" | "}" | "?" | "."
+  | "(" [ expression() ] ")"
 }
 
 void option_list() #void :

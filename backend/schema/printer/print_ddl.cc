@@ -42,6 +42,7 @@
 #include "backend/schema/catalog/change_stream.h"
 #include "backend/schema/catalog/check_constraint.h"
 #include "backend/schema/catalog/column.h"
+#include "backend/schema/catalog/index.h"
 #include "backend/schema/catalog/database_options.h"
 #include "backend/schema/catalog/foreign_key.h"
 #include "backend/schema/catalog/locality_group.h"
@@ -209,8 +210,14 @@ std::string PrintColumn(const Column* column) {
 }
 
 std::string PrintKeyColumn(const KeyColumn* column) {
-  return absl::Substitute("$0$1", PrintName(column->column()->Name()),
-                          (column->is_descending() ? " DESC" : ""));
+  const Column* key = column->column();
+  // Expression keys of an index are data table columns without a source.
+  bool is_index_expression = key->table()->owner_index() != nullptr &&
+                             key->source_column() == nullptr &&
+                             key->expression().has_value();
+  return absl::Substitute(
+      "$0$1", is_index_expression ? *key->expression() : PrintName(key->Name()),
+      (column->is_descending() ? " DESC" : ""));
 }
 
 std::string PrintIndexFilter(const Index* index) {

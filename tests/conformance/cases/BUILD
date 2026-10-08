@@ -48,6 +48,7 @@ cc_library(
         "foreign_key_verifiers.cc",
         "generated_column_read_write.cc",
         "identity_column.cc",
+        "expression_index.cc",
         "index_backfill.cc",
         "index_read_write.cc",
         "information_schema.cc",

@@ -51,6 +51,7 @@ cc_library(
         "//backend/schema/updater:schema_validation_context",
         "//backend/storage:in_memory_storage",
         "//backend/storage:iterator",
+        "//common:constants",
         "//common:errors",
         "//common:limits",
         "@com_google_absl//absl/container:flat_hash_set",

@@ -267,11 +267,17 @@ cc_library(
         ":action",
         ":ops",
         "//backend/common:indexing",
+        "//backend/common:rows",
+        "//backend/query:analyzer_options",
         "//backend/schema/catalog:schema",
         "//common:errors",
+        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
+        "@com_google_googlesql//googlesql/base:ret_check",
         "@com_google_googlesql//googlesql/base:status",
+        "@com_google_googlesql//googlesql/public:analyzer_options",
+        "@com_google_googlesql//googlesql/public:catalog",
     ],
 )
 

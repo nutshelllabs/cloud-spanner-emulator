@@ -2696,6 +2696,142 @@ TEST_P(SchemaUpdaterTest, GeneratedColumnNonDeterministicFunction) {
                 .message())));
   }
 }
+TEST_P(SchemaUpdaterTest, CreateIndexWithExpressionKeys) {
+  if (GetParam() == POSTGRESQL) GTEST_SKIP();
+  GOOGLESQL_ASSERT_OK_AND_ASSIGN(auto schema, CreateSchema({R"sql(
+      CREATE TABLE T (
+        k1 INT64 NOT NULL,
+        c1 STRING(MAX),
+        c2 INT64,
+        j1 JSON
+      ) PRIMARY KEY (k1)
+    )sql",
+                                                  R"sql(
+      CREATE NULL_FILTERED INDEX Idx ON T(c1, JSON_VALUE(j1, '$.id') DESC)
+          STORING (c2)
+    )sql"}));
+
+  const Table* t = schema->FindTable("T");
+  const Index* idx = schema->FindIndex("Idx");
+  ASSERT_NOT_NULL(idx);
+  EXPECT_TRUE(idx->is_expression_index());
+  ASSERT_EQ(idx->key_columns().size(), 2);
+
+  EXPECT_THAT(idx->key_columns()[0]->column(),
+              SourceColumnIs(t->FindColumn("c1")));
+
+  const KeyColumn* expr_key = idx->key_columns()[1];
+  EXPECT_THAT(expr_key->column(),
+              ColumnIs("expr2", type_factory_.get_string()));
+  EXPECT_TRUE(expr_key->is_descending());
+  EXPECT_EQ(expr_key->column()->source_column(), nullptr);
+  EXPECT_EQ(expr_key->column()->expression(), "JSON_VALUE(j1, '$.id')");
+  EXPECT_FALSE(expr_key->column()->is_nullable());
+  EXPECT_THAT(expr_key->column()->dependent_columns(),
+              testing::ElementsAre(t->FindColumn("j1")));
+
+  auto data_pk = idx->index_data_table()->primary_key();
+  ASSERT_EQ(data_pk.size(), 3);
+  EXPECT_EQ(data_pk[1]->column(), expr_key->column());
+  EXPECT_THAT(data_pk[2]->column(), SourceColumnIs(t->FindColumn("k1")));
+
+  GOOGLESQL_ASSERT_OK_AND_ASSIGN(auto ddl_statements,
+                                 PrintDDLStatements(schema.get()));
+  EXPECT_THAT(ddl_statements,
+              testing::Contains(
+                  "CREATE NULL_FILTERED INDEX Idx ON "
+                  "T(c1, JSON_VALUE(j1, '$.id') DESC) STORING (c2)"));
+}
+
+TEST_P(SchemaUpdaterTest, CreateIndexWithExpressionKey_NullableKey) {
+  if (GetParam() == POSTGRESQL) GTEST_SKIP();
+  GOOGLESQL_ASSERT_OK_AND_ASSIGN(auto schema, CreateSchema({R"sql(
+      CREATE TABLE T (
+        k1 INT64 NOT NULL,
+        c1 STRING(MAX)
+      ) PRIMARY KEY (k1)
+    )sql",
+                                                  R"sql(
+      CREATE INDEX Idx ON T(LOWER(c1))
+    )sql"}));
+  const Index* idx = schema->FindIndex("Idx");
+  ASSERT_NOT_NULL(idx);
+  EXPECT_TRUE(idx->key_columns()[0]->column()->is_nullable());
+}
+
+TEST_P(SchemaUpdaterTest, CreateIndexWithExpressionKey_InvalidExpressions) {
+  if (GetParam() == POSTGRESQL) GTEST_SKIP();
+  const std::string table = R"sql(
+      CREATE TABLE T (
+        k1 INT64 NOT NULL,
+        c1 STRING(MAX),
+        j1 JSON
+      ) PRIMARY KEY (k1)
+    )sql";
+
+  auto status_code_of = [&](const std::string& index) {
+    return CreateSchema({table, index}).status().code();
+  };
+
+  // JSON is not a valid key type.
+  EXPECT_EQ(status_code_of("CREATE INDEX Idx ON T(JSON_QUERY(j1, '$.x'))"),
+            absl::StatusCode::kInvalidArgument);
+
+  // Column references must resolve against the indexed table.
+  EXPECT_EQ(status_code_of("CREATE INDEX Idx ON T(LOWER(nope))"),
+            absl::StatusCode::kInvalidArgument);
+
+  // Constant expressions index nothing.
+  EXPECT_THAT(CreateSchema({table, R"sql(
+      CREATE INDEX Idx ON T(LOWER('a'))
+    )sql"}),
+              StatusIs(error::IndexExpressionRefsNoColumn("Idx", "LOWER('a')")));
+
+  // Non-deterministic functions cannot be indexed.
+  EXPECT_EQ(status_code_of("CREATE INDEX Idx ON T(TIMESTAMP_ADD("
+                           "CURRENT_TIMESTAMP(), INTERVAL k1 SECOND))"),
+            absl::StatusCode::kFailedPrecondition);
+
+  // Subqueries are not scalar expressions.
+  EXPECT_EQ(status_code_of("CREATE INDEX Idx ON T((SELECT c1))"),
+            absl::StatusCode::kInvalidArgument);
+}
+
+TEST_P(SchemaUpdaterTest, CreateIndexWithExpressionKey_DependentColumnChanges) {
+  if (GetParam() == POSTGRESQL) GTEST_SKIP();
+  GOOGLESQL_ASSERT_OK_AND_ASSIGN(auto schema, CreateSchema({R"sql(
+      CREATE TABLE T (
+        k1 INT64 NOT NULL,
+        c1 STRING(MAX),
+        c2 STRING(MAX)
+      ) PRIMARY KEY (k1)
+    )sql",
+                                                  R"sql(
+      CREATE INDEX Idx ON T(LOWER(c1))
+    )sql"}));
+
+  EXPECT_THAT(UpdateSchema(schema.get(), {R"sql(
+      ALTER TABLE T DROP COLUMN c1
+    )sql"}),
+              StatusIs(error::InvalidDropColumnWithDependency("c1", "T", "Idx")));
+
+  EXPECT_THAT(UpdateSchema(schema.get(), {R"sql(
+      ALTER TABLE T ALTER COLUMN c1 BYTES(MAX)
+    )sql"}),
+              StatusIs(error::AlterColumnUsedByIndexExpression("c1", "T", "Idx")));
+
+  // Columns the expression does not read, and the index itself, can go.
+  GOOGLESQL_EXPECT_OK(UpdateSchema(schema.get(), {R"sql(
+      ALTER TABLE T DROP COLUMN c2
+    )sql"}));
+  GOOGLESQL_ASSERT_OK_AND_ASSIGN(auto dropped, UpdateSchema(schema.get(), {R"sql(
+      DROP INDEX Idx
+    )sql"}));
+  GOOGLESQL_EXPECT_OK(UpdateSchema(dropped.get(), {R"sql(
+      ALTER TABLE T DROP COLUMN c1
+    )sql"}));
+}
+
 }  // namespace
 
 }  // namespace test

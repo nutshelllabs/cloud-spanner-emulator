@@ -16,15 +16,23 @@
 
 #include "backend/actions/index.h"
 
+#include <algorithm>
 #include <iterator>
+#include <memory>
+#include <utility>
 #include <vector>
 
+#include "googlesql/public/analyzer_options.h"
+#include "googlesql/public/catalog.h"
+#include "absl/log/check.h"
 #include "absl/status/statusor.h"
 #include "backend/common/indexing.h"
+#include "backend/query/analyzer_options.h"
 #include "backend/schema/catalog/column.h"
 #include "backend/schema/catalog/index.h"
 #include "backend/schema/catalog/table.h"
 #include "common/errors.h"
+#include "googlesql/base/ret_check.h"
 #include "googlesql/base/status_macros.h"
 #include "absl/status/status.h"
 
@@ -55,17 +63,52 @@ absl::StatusOr<Row> ReadBaseTableRow(
 
 }  // namespace
 
-IndexEffector::IndexEffector(const Index* index) : index_(index) {
+IndexEffector::IndexEffector(const Index* index)
+    : IndexEffector(index, MakeGoogleSqlAnalyzerOptions(),
+                    /*catalog=*/nullptr) {}
+
+IndexEffector::IndexEffector(const Index* index,
+                             const googlesql::AnalyzerOptions& analyzer_options,
+                             googlesql::Catalog* catalog)
+    : index_(index) {
   // Save the base table columns corresponding to the index data table.
   for (const Column* column : index->index_data_table()->columns()) {
-    base_columns_.emplace_back(column->source_column());
+    if (column->source_column() != nullptr) {
+      base_columns_.emplace_back(column->source_column());
+    }
   }
+  if (!index->is_expression_index()) {
+    return;
+  }
+  auto evaluator =
+      IndexExpressionEvaluator::Create(index, analyzer_options, catalog);
+  ABSL_DCHECK_OK(evaluator.status())
+      << "Failed to prepare key expressions of index " << index->Name();
+  if (!evaluator.ok()) {
+    return;
+  }
+  expression_evaluator_ = std::move(*evaluator);
+  for (const Column* column : expression_evaluator_->dependent_columns()) {
+    if (std::find(base_columns_.begin(), base_columns_.end(), column) ==
+        base_columns_.end()) {
+      base_columns_.push_back(column);
+    }
+  }
+}
+
+absl::Status IndexEffector::EvaluateKeyExpressions(Row* base_row) const {
+  if (!index_->is_expression_index()) {
+    return absl::OkStatus();
+  }
+  GOOGLESQL_RET_CHECK(expression_evaluator_ != nullptr) << index_->Name();
+  return expression_evaluator_->Evaluate(base_row);
 }
 
 absl::Status IndexEffector::Effect(const ActionContext* ctx,
                                    const InsertOp& op) const {
   // Compute the index key and column values.
   Row base_row = MakeRow(op.columns, op.values);
+  GOOGLESQL_RETURN_IF_ERROR(EvaluateKeyExpressions(&base_row));
   GOOGLESQL_ASSIGN_OR_RETURN(Key index_key, ComputeIndexKey(base_row, index_));
   ValueList index_values = ComputeIndexValues(base_row, index_);
   if (ShouldFilterIndexKeyOrValue(index_, index_key, base_row)) {
@@ -91,6 +134,7 @@ absl::Status IndexEffector::Effect(const ActionContext* ctx,
   }
 
   // If a previous index entry existed, delete it.
+  GOOGLESQL_RETURN_IF_ERROR(EvaluateKeyExpressions(&base_row));
   GOOGLESQL_ASSIGN_OR_RETURN(Key old_index_key, ComputeIndexKey(base_row, index_));
   if (!ShouldFilterIndexKeyOrValue(index_, old_index_key, base_row)) {
     ctx->effects()->Delete(index_->index_data_table(), old_index_key);
@@ -100,6 +144,7 @@ absl::Status IndexEffector::Effect(const ActionContext* ctx,
   for (int i = 0; i < op.columns.size(); ++i) {
     base_row[op.columns[i]] = op.values[i];
   }
+  GOOGLESQL_RETURN_IF_ERROR(EvaluateKeyExpressions(&base_row));
   GOOGLESQL_ASSIGN_OR_RETURN(Key new_index_key, ComputeIndexKey(base_row, index_));
   ValueList index_values = ComputeIndexValues(base_row, index_);
   if (ShouldFilterIndexKeyOrValue(index_, new_index_key, base_row)) {
@@ -124,6 +169,7 @@ absl::Status IndexEffector::Effect(const ActionContext* ctx,
   }
 
   // Compute the index key to delete.
+  GOOGLESQL_RETURN_IF_ERROR(EvaluateKeyExpressions(&base_row));
   GOOGLESQL_ASSIGN_OR_RETURN(Key index_key, ComputeIndexKey(base_row, index_));
   if (ShouldFilterIndexKeyOrValue(index_, index_key, base_row)) {
     return absl::OkStatus();

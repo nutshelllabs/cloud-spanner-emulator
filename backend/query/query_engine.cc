@@ -1044,7 +1044,7 @@ ExtractValidatedResolvedStatementAndOptions(
       options.disable_query_null_filtered_index_check ||
           config::disable_query_null_filtered_index_check(),
       allow_search_indexes_in_transaction, in_partition_query,
-      in_select_for_update_query};
+      in_select_for_update_query, database_catalog};
   GOOGLESQL_RETURN_IF_ERROR(statement->Accept(&index_hint_validator));
 
   // Step 4: Rewrite ANN functions.

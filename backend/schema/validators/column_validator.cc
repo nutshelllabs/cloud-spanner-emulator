@@ -34,6 +34,7 @@
 #include "backend/schema/backfills/column_value_backfill.h"
 #include "backend/schema/catalog/change_stream.h"
 #include "backend/schema/catalog/column.h"
+#include "backend/schema/catalog/index.h"
 #include "backend/schema/catalog/proto_bundle.h"
 #include "backend/schema/catalog/table.h"
 #include "backend/schema/catalog/udf.h"
@@ -302,6 +303,7 @@ absl::Status ColumnValidator::Validate(const Column* column,
       GOOGLESQL_RET_CHECK(!column->postgresql_oid().has_value());
     }
     if (!EmulatorFeatureFlags::instance().flags().enable_generated_pk &&
+        column->table()->owner_index() == nullptr &&
         column->table()->FindKeyColumn(column->Name())) {
       return error::CannotUseGeneratedColumnInPrimaryKey(
           column->table()->Name(), column->Name());
@@ -354,9 +356,16 @@ absl::Status ColumnValidator::ValidateUpdate(const Column* column,
   // For a non-deleted column, the objects it depends on should
   // also be alive.
   GOOGLESQL_RET_CHECK(!column->table_->is_deleted());
-  // It is invalid to drop a column which is referenced by a generated column.
+  // It is invalid to drop a column which is referenced by a generated column
+  // or by an index key expression.
   for (const Column* dep : column->dependent_columns()) {
     if (dep->is_deleted()) {
+      const Index* owner_index = column->table()->owner_index();
+      if (owner_index != nullptr) {
+        return error::InvalidDropColumnWithDependency(
+            dep->Name(), owner_index->indexed_table()->Name(),
+            owner_index->Name());
+      }
       return error::InvalidDropColumnReferencedByGeneratedColumn(
           dep->Name(), column->table()->Name(), column->Name());
     }
@@ -391,6 +400,22 @@ absl::Status ColumnValidator::ValidateUpdate(const Column* column,
             return error::
                 CannotAlterColumnDataTypeWithDependentStoredGeneratedColumn(
                     column->Name());
+          }
+        }
+      }
+    }
+    for (const Index* index : column->table()->indexes()) {
+      if (!index->is_expression_index()) {
+        continue;
+      }
+      for (const Column* index_column : index->index_data_table()->columns()) {
+        if (index_column->source_column() != nullptr) {
+          continue;
+        }
+        for (const Column* dep : index_column->dependent_columns()) {
+          if (column == dep) {
+            return error::AlterColumnUsedByIndexExpression(
+                column->Name(), column->table()->Name(), index->Name());
           }
         }
       }

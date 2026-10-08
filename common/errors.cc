@@ -1728,6 +1728,34 @@ absl::Status IndexRefsNonExistentColumn(absl::string_view index_name,
                        index_name, column_name));
 }
 
+absl::Status IndexExpressionRefsUdf(absl::string_view index_name,
+                                    absl::string_view expression) {
+  return absl::Status(
+      absl::StatusCode::kInvalidArgument,
+      absl::Substitute("Index $0 key expression $1 references a user-defined "
+                       "function, which is not supported.",
+                       index_name, expression));
+}
+
+absl::Status IndexExpressionRefsNoColumn(absl::string_view index_name,
+                                         absl::string_view expression) {
+  return absl::Status(
+      absl::StatusCode::kInvalidArgument,
+      absl::Substitute("Index $0 key expression $1 must reference at least "
+                       "one column of the index's base table.",
+                       index_name, expression));
+}
+
+absl::Status AlterColumnUsedByIndexExpression(absl::string_view column_name,
+                                              absl::string_view table_name,
+                                              absl::string_view index_name) {
+  return absl::Status(
+      absl::StatusCode::kFailedPrecondition,
+      absl::Substitute("Cannot change the type of column $0 in table $1 "
+                       "because it is used by a key expression of index $2.",
+                       column_name, table_name, index_name));
+}
+
 absl::Status AlteringParentColumn(absl::string_view column_name) {
   return absl::Status(
       absl::StatusCode::kInvalidArgument,

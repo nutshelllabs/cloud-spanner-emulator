@@ -123,6 +123,13 @@ class Column::Builder {
     return *this;
   }
 
+  // For index expression columns, whose dependencies live in the indexed
+  // table rather than in the column's own table.
+  Builder& add_dependent_column(const Column* column) {
+    instance_->dependent_columns_.push_back(column);
+    return *this;
+  }
+
   Builder& set_declared_max_length(std::optional<int64_t> length) {
     instance_->declared_max_length_ = length;
     return *this;

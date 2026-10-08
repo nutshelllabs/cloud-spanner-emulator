@@ -290,6 +290,10 @@ message KeyPartClause {
   }
   // The ordering specified by this key component (if at all)
   optional Order order = 2 [default = ASC];
+
+  // SQL expression used as an index key instead of a column. Set only for
+  // CREATE INDEX; mutually exclusive with key_name.
+  optional string expression = 3;
 }
 
 message ForeignKey {

@@ -677,6 +677,12 @@ void VisitIndexKeyNode(const SimpleNode* node,
         SetSortOrder(child, key_part, errors);
         break;
       }
+      case JJTKEY_EXPRESSION_PART: {
+        key_part->set_expression(std::string(ExtractTextForNode(
+            GetChildNode(child, 0, JJTKEY_EXPRESSION), ddl_text)));
+        SetSortOrder(child, key_part, errors);
+        break;
+      }
       default:
         errors->push_back(
             absl::StrCat("Unexpected key part type: ", child->toString()));

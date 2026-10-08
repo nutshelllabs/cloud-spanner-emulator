@@ -427,21 +427,25 @@ absl::Status TableValidator::Validate(const Table* table,
     GOOGLESQL_RET_CHECK_EQ(table->owner_index_->index_data_table(), table);
   }
 
-  // Validate generated columns.
-  GraphDependencyHelper<const Column*, GetColumnName> cycle_detector(
-      /*object_type=*/"generated column");
-  for (const Column* column : table->columns()) {
-    GOOGLESQL_RETURN_IF_ERROR(cycle_detector.AddNodeIfNotExists(column));
-  }
-  for (const Column* column : table->columns()) {
-    if (column->is_generated()) {
-      for (const Column* dep : column->dependent_columns()) {
-        GOOGLESQL_RETURN_IF_ERROR(
-            cycle_detector.AddEdgeIfNotExists(column->Name(), dep->Name()));
+  // Validate generated columns. Index data tables are exempt: their only
+  // generated columns are expression keys, whose dependencies are columns of
+  // the indexed table, so they cannot form a cycle.
+  if (!table->owner_index_) {
+    GraphDependencyHelper<const Column*, GetColumnName> cycle_detector(
+        /*object_type=*/"generated column");
+    for (const Column* column : table->columns()) {
+      GOOGLESQL_RETURN_IF_ERROR(cycle_detector.AddNodeIfNotExists(column));
+    }
+    for (const Column* column : table->columns()) {
+      if (column->is_generated()) {
+        for (const Column* dep : column->dependent_columns()) {
+          GOOGLESQL_RETURN_IF_ERROR(
+              cycle_detector.AddEdgeIfNotExists(column->Name(), dep->Name()));
+        }
       }
     }
+    GOOGLESQL_RETURN_IF_ERROR(cycle_detector.DetectCycle());
   }
-  GOOGLESQL_RETURN_IF_ERROR(cycle_detector.DetectCycle());
   GOOGLESQL_RETURN_IF_ERROR(
       ValidateRowDeletionPolicy(table->row_deletion_policy(), table));
 
